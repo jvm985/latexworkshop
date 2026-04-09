@@ -63,7 +63,12 @@ export default function EditorView() {
   const [project, setProject] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [activeDoc, setActiveDoc] = useState<any>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  
+  // Double-buffering for PDF viewer to eliminate flash
+  const [activeBuffer, setActiveBuffer] = useState<'a' | 'b'>('a');
+  const [pdfUrlA, setPdfUrlA] = useState<string | null>(null);
+  const [pdfUrlB, setPdfUrlB] = useState<string | null>(null);
+  
   const [compiling, setCompiling] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
   const [parsedErrors, setParsedErrors] = useState<any[]>([]);
@@ -125,16 +130,27 @@ export default function EditorView() {
     if (compiling && isAuto) return;
     setCompiling(true);
     try {
-      const res = await axios.post(`${API_URL}/compile/${id}`, {}, { 
+      const res = await axios.post(`${API_URL}/compile/${id}`, {
+          preferredMain: activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current)?.name : null
+      }, { 
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
+      
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
-      setPdfUrl(prev => {
-          if (prev) setTimeout(() => window.URL.revokeObjectURL(prev), 5000);
-          return url;
-      });
+      
+      // Toggle buffers to hide flash
+      if (activeBuffer === 'a') {
+          setPdfUrlB(url);
+          setActiveBuffer('b');
+          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 2000);
+      } else {
+          setPdfUrlA(url);
+          setActiveBuffer('a');
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
+      }
+      
       setLogs(null);
       setParsedErrors([]);
     } catch (err: any) {
@@ -146,8 +162,7 @@ export default function EditorView() {
             const rawLogs = result.logs || 'Compilation failed.';
             setLogs(rawLogs);
             setParsedErrors(parseLogErrors(rawLogs, project?.type || 'latex'));
-            setPdfUrl(null);
-          } catch(e) { setLogs('Compilation error.'); setPdfUrl(null); }
+          } catch(e) { setLogs('Compilation error.'); }
         };
         reader.readAsText(err.response.data);
       }
@@ -162,24 +177,17 @@ export default function EditorView() {
       
       if (res.data.documents.length > 0 && !activeDocIdRef.current) {
         const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
-        setActiveDoc(main);
-        activeDocIdRef.current = main._id;
-        currentContentRef.current = main.content || '';
+        switchDoc(main);
       }
       if (autoCompile) compile(true);
     } catch (e) { navigate('/'); }
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -296,17 +304,6 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const convertProject = async () => {
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
-  };
-
   const logout = () => {
       localStorage.removeItem('latex_token');
       navigate('/login');
@@ -409,6 +406,8 @@ export default function EditorView() {
     });
   };
 
+  const pdfUrl = activeBuffer === 'a' ? pdfUrlA : pdfUrlB;
+
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
@@ -424,9 +423,6 @@ export default function EditorView() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
-          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
-            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
-          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
           {project.type === 'latex' && (
@@ -478,42 +474,52 @@ export default function EditorView() {
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
-            {pdfUrl ? (
-                <div style={{ height: '100%', width: '100%' }}>
+            {parsedErrors.length > 0 ? (
+                <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
+                    <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', marginBottom: '24px' }}><AlertCircle /> Compilatie Fouten</h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {parsedErrors.map((err, i) => (
+                            <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span>
+                                    <span style={{ color: '#888', fontSize: '11px' }}>Lijn {err.line}</span>
+                                </div>
+                                <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>
+                    {showFullLogs && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                </div>
+            ) : (
+                <div style={{ height: '100%', width: '100%', position: 'relative' }}>
                     {compiling && (
                         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Loader2 size={32} className="animate-spin" color="#0071e3"/>
                         </div>
                     )}
-                    <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
-                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
-                    </div>
-                    <iframe key={pdfUrl} src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d' }} />
-                </div>
-            ) : (
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#1e1e1e' }}>
-                    {parsedErrors.length > 0 ? (
-                        <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
-                            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', marginBottom: '24px' }}><AlertCircle /> Compilatie Fouten</h2>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {parsedErrors.map((err, i) => (
-                                    <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                            <span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span>
-                                            <span style={{ color: '#888', fontSize: '11px' }}>Lijn {err.line}</span>
-                                        </div>
-                                        <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
-                                    </div>
-                                ))}
-                            </div>
-                            <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>
-                            {showFullLogs && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                    {pdfUrl && (
+                        <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
+                            <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                            <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
                         </div>
-                    ) : (
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                            {compiling ? <Loader2 size={48} className="animate-spin" style={{ opacity: 0.1, marginBottom: '10px' }}/> : <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>}
-                            <span>{compiling ? "Bezig met compileren..." : "Geen PDF beschikbaar."}</span>
+                    )}
+                    
+                    {/* Buffer A */}
+                    <iframe 
+                        src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} 
+                        style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} 
+                    />
+                    {/* Buffer B */}
+                    <iframe 
+                        src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} 
+                        style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} 
+                    />
+
+                    {!pdfUrlA && !pdfUrlB && !compiling && (
+                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                            <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                            <span>PDF wordt geladen...</span>
                         </div>
                     )}
                 </div>

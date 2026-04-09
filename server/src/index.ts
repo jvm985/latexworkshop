@@ -163,34 +163,6 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
     res.json({ success: true });
 });
 
-// --- CONVERSION ENGINE (Pandoc) ---
-app.post('/api/convert/:id', authenticate, async (req: any, res) => {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!project) return res.status(404).send('Not found');
-
-    const targetType = project.type === 'latex' ? 'typst' : 'latex';
-    const documents = await Document.find({ project: project._id, isFolder: false, isBinary: false });
-    
-    for (const doc of documents) {
-        if (doc.name.endsWith('.tex') || doc.name.endsWith('.typ')) {
-            const inputFormat = project.type === 'latex' ? 'latex' : 'typst';
-            const outputFormat = targetType;
-            const newName = doc.name.replace(/\.(tex|typ)$/, outputFormat === 'latex' ? '.tex' : '.typ');
-            
-            const cmd = `echo ${JSON.stringify(doc.content)} | pandoc -f ${inputFormat} -t ${outputFormat}`;
-            exec(cmd, async (error, stdout) => {
-                if (!error) {
-                    await Document.create({ project: project._id, name: newName, content: stdout, path: doc.path });
-                }
-            });
-        }
-    }
-    project.type = targetType;
-    project.compiler = targetType === 'typst' ? 'typst' : 'pdflatex';
-    await project.save();
-    res.json(project);
-});
-
 // --- COMPILATION ENGINE ---
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
@@ -200,6 +172,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
+  const { preferredMain } = req.body;
   let mainFile = '';
   let fallbackFile = '';
 
@@ -213,7 +186,13 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
         fs.writeFileSync(fullPath, doc.content);
     }
     
-    if (doc.isMain) mainFile = doc.name;
+    // Check if this is the preferred file from editor
+    if (preferredMain && doc.name === preferredMain) {
+        if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
+        else if (project.type === 'latex' && doc.content.includes('\\documentclass')) mainFile = preferredMain;
+    }
+
+    if (doc.isMain && !mainFile) mainFile = doc.name;
 
     if (project.type === 'typst') {
         if (!fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
@@ -235,24 +214,22 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
         if (fs.existsSync(path.join(workDir, mainFile))) fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
         mainFile = newMain;
     }
-    command = `typst compile ${mainFile} main.pdf`;
+    command = `typst compile "${mainFile}" main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-    // FIXED: Use -jobname=main to ensure output is always main.pdf
     command = `latexmk -${compiler} -interaction=nonstopmode -jobname=main -f "${mainFile}"`;
   }
 
-  console.log(`Compiling project ${project.name} (${project.type}) with command: ${command}`);
+  console.log(`Compiling project ${project.name} (${project.type}) using ${mainFile}`);
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
-      console.log(`✅ Compilation successful for ${project.name}`);
-      res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
+      res.sendFile(pdfPath, () => {
+          // Cleanup workDir after a delay to ensure sendFile is done
+          setTimeout(() => fs.rmSync(workDir, { recursive: true, force: true }), 5000);
+      });
     } else {
-      console.error(`❌ Compilation failed for ${project.name}`);
-      console.error(`STDOUT: ${stdout}`);
-      console.error(`STDERR: ${stderr}`);
       res.status(500).json({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });
       fs.rmSync(workDir, { recursive: true, force: true });
     }
