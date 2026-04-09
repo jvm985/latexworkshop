@@ -7,8 +7,8 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2,
-  Settings, Download, Maximize2, LogOut, Loader2
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
+  Settings, Download, Maximize2, LogOut, Loader2, Upload
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -87,6 +87,7 @@ export default function EditorView() {
   const compileTimeoutRef = useRef<any>(null);
   const currentContentRef = useRef<string>('');
   const activeDocIdRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
@@ -110,22 +111,19 @@ export default function EditorView() {
           return url;
       });
       setLogs(null);
+      if (isAuto && view === 'logs') setView('split');
     } catch (err: any) {
-      if (!isAuto) {
-        if (err.response?.data instanceof Blob) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const result = JSON.parse(reader.result as string);
-              setLogs(result.logs || 'Compilation failed.');
-              if (!isAuto) setView('logs');
-            } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
-          };
-          reader.readAsText(err.response.data);
-        } else {
-          setLogs('Server error during compilation.');
-          setView('logs');
-        }
+      if (err.response?.data instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const result = JSON.parse(reader.result as string);
+            setLogs(result.logs || 'Compilation failed.');
+            // Show logs even for auto-compile if it's Typst and there's a new error
+            if (!isAuto || project?.type === 'typst') setView('logs');
+          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
+        };
+        reader.readAsText(err.response.data);
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -147,15 +145,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -220,6 +213,32 @@ export default function EditorView() {
 
     await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path }, { headers: { Authorization: `Bearer ${token}` } });
     fetchAll();
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+      
+      let path = "";
+      if (activeDoc && activeDoc.isFolder) path = activeDoc.path + activeDoc.name + "/";
+      else if (activeDoc && activeDoc.path) path = activeDoc.path;
+
+      for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const reader = new FileReader();
+          reader.onload = async () => {
+              const base64 = (reader.result as string).split(',')[1];
+              await axios.post(`${API_URL}/projects/${id}/files`, { 
+                  name: file.name, 
+                  isFolder: false, 
+                  isBinary: true, 
+                  path, 
+                  binaryData: base64 
+              }, { headers: { Authorization: `Bearer ${token}` } });
+              if (i === files.length - 1) fetchAll();
+          };
+          reader.readAsDataURL(file);
+      }
   };
 
   const deleteFile = async (docId: string) => {
@@ -365,11 +384,19 @@ export default function EditorView() {
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
-              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)} title="New File"><FilePlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)} title="New Folder"><FolderPlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => fileInputRef.current?.click()} title="Upload Files"><Upload size={14}/></button>
+              <input type="file" ref={fileInputRef} onChange={handleUpload} multiple style={{ display: 'none' }}/>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
+          
+          <div style={{ padding: '12px', borderTop: '1px solid #222', display: 'flex', justifyContent: 'center' }}>
+              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer' }}>
+                  <LogOut size={14}/> Logout
+              </button>
+          </div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
@@ -387,8 +414,8 @@ export default function EditorView() {
                     options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
                 />
               ) : (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                    {activeDoc?.isBinary ? "Binaire bestanden (afbeeldingen) kunnen niet worden bewerkt." : "Selecteer een bestand."}
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
+                    {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
                 </div>
               )}
             </div>

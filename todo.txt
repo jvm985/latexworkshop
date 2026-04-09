@@ -12,8 +12,8 @@ klaar
 
 to do
 -----
-
--na een tijdje compileert typst niet meer
+- maak het mogelijk om bestanden en mappen te kunnen uploaden in een project
+-wanneer typst een fout heeft, zie je geen feedback
 -ik zie onderaan de logout icon niet meer
 -de wijzigingen worden niet bewaard: wanneer ik naar een ander bestand ga, moeten die worden opgeslagen
 -wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
