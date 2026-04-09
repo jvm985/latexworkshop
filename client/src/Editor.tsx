@@ -17,7 +17,7 @@ import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
 
-// --- MONACO SETUP ---
+// --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
@@ -108,10 +108,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token, navigate]);
 
   useEffect(() => {
@@ -163,6 +168,17 @@ export default function EditorView() {
     if (!confirm('Delete this item?')) return;
     await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
     fetchAll();
+  };
+
+  const convertProject = async () => {
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
   };
 
   useEffect(() => {
@@ -230,7 +246,7 @@ export default function EditorView() {
           <div 
             onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
             style={{ 
-              display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, 
+              display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
               background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', 
               color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), 
@@ -238,15 +254,15 @@ export default function EditorView() {
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : <FileText size={14} color={item.isBinary ? "#dcb67a" : "#519aba"}/>}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
-                {item.isMain && <CheckCircle2 size={12} color="#4ade80" title="Main File"/>}
+                {item.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
-            {activeDoc?._id === doc?._id && (
+            {!isFolderNode && activeDoc?._id === item._id && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    {!isFolderNode && !doc.isMain && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }} title="Set as Main"/>}
+                    {!doc.isMain && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
                     <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>
                 </div>
             )}
@@ -271,6 +287,9 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
+            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
+          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
             <Share2 size={16}/> Share
           </button>
@@ -288,7 +307,7 @@ export default function EditorView() {
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Explorer</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
@@ -339,11 +358,6 @@ export default function EditorView() {
           </div>
         )}
       </main>
-
-      <footer style={{ height: '24px', background: '#007acc', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
-        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content?.length || 0}</span></div>
-      </footer>
 
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
