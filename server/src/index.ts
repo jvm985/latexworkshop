@@ -238,7 +238,8 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     command = `typst compile ${mainFile} main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-    command = `latexmk -${compiler} -interaction=nonstopmode -f "${mainFile}"`;
+    // FIXED: Use -jobname=main to ensure output is always main.pdf
+    command = `latexmk -${compiler} -interaction=nonstopmode -jobname=main -f "${mainFile}"`;
   }
 
   console.log(`Compiling project ${project.name} (${project.type}) with command: ${command}`);
