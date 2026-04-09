@@ -4,7 +4,7 @@ import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { 
   FileText, LogOut, Layout, Clock, 
-  Search, Settings, User as UserIcon, Plus, ExternalLink
+  Search, ExternalLink
 } from 'lucide-react';
 import EditorView from './Editor';
 
@@ -42,8 +42,17 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   useEffect(() => {
-    if (!token) return navigate('/login');
-    axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setProjects(res.data));
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchProjects = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+        setProjects(res.data);
+      } catch (e) { /* silent fail */ }
+    };
+    fetchProjects();
   }, [token, navigate]);
 
   const create = async () => {
@@ -56,7 +65,6 @@ function Dashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: '#121212', color: 'white', fontFamily: '"Inter", sans-serif' }}>
-      {/* Sidebar - Sleek & Narrow */}
       <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
           <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={18}/></div>
@@ -73,8 +81,7 @@ function Dashboard() {
         </div>
       </aside>
 
-      {/* Main Content - Full Width */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', width: 'calc(100vw - 220px)' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <header style={{ padding: '20px 40px', borderBottom: '1px solid #282828', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }}/>
@@ -85,7 +92,7 @@ function Dashboard() {
             />
           </div>
           <div style={{ display: 'flex', gap: '8px', background: '#181818', borderRadius: '8px', border: '1px solid #282828', padding: '4px' }}>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 10px', width: '180px', outline: 'none', fontSize: '14px' }}/>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 12px', width: '180px', outline: 'none', fontSize: '14px' }}/>
             <select value={type} onChange={e => setType(e.target.value)} style={{ background: '#282828', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
               <option value="latex">LaTeX</option>
               <option value="typst">Typst</option>
@@ -94,7 +101,6 @@ function Dashboard() {
           </div>
         </header>
 
-        {/* PROJECT TABLE */}
         <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
