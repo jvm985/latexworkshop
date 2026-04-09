@@ -6,7 +6,7 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
-  AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon
+  AlertCircle, Share2
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -18,10 +18,7 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  // Ensure LaTeX is registered correctly
   monaco.languages.register({ id: 'latex' });
-  
-  // Custom Typst syntax highlighting
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -51,9 +48,6 @@ export default function EditorView() {
   const [compiling, setCompiling] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
   const [view, setView] = useState<'split' | 'logs'>('split');
-  const [showShare, setShowShare] = useState(false);
-  const [shareEmail, setShareEmail] = useState('');
-  const [sharePerm, setSharePerm] = useState('read');
   
   const [leftWidth, setLeftWidth] = useState(220);
   const [editorWidth, setEditorWidth] = useState(50);
@@ -65,21 +59,24 @@ export default function EditorView() {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-    } catch (e) { navigate('/'); }
-  };
-
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchAll = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        setProject(res.data.project);
+        setDocuments(res.data.documents);
+        if (res.data.documents.length > 0) {
+          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+          setActiveDoc(main);
+        }
+      } catch (e) { navigate('/'); }
+    };
     fetchAll();
+
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
   }, [id, token, navigate]);
@@ -106,8 +103,7 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      setPdfUrl(url);
+      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
       setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
@@ -116,13 +112,13 @@ export default function EditorView() {
           reader.onload = () => {
             try {
               const result = JSON.parse(reader.result as string);
-              setLogs(result.logs || 'Compilation failed without logs.');
+              setLogs(result.logs || 'Fout bij compilatie.');
               setView('logs');
-            } catch(e) { setLogs('Error parsing compiler logs.'); setView('logs'); }
+            } catch(e) { setLogs('Compilatie mislukt. Bekijk de server logs.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
-          setLogs('Compiler server unreachable or crashed.');
+          setLogs('Server fout tijdens compilatie.');
           setView('logs');
         }
       }
@@ -138,14 +134,6 @@ export default function EditorView() {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 1000);
     }
-  };
-
-  const handleShare = async () => {
-    if (!shareEmail) return;
-    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
-    setShareEmail('');
-    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    setProject(res.data.project);
   };
 
   const startResizing = () => isResizingRef.current = true;
@@ -175,7 +163,7 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading...</div>;
+  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
@@ -183,13 +171,13 @@ export default function EditorView() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px', fontWeight: 700 }}>{project.name}</span>
+            <span style={{ fontSize: '14px', fontWeight: 600 }}>{project.name}</span>
             <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888' }}>{project.type.toUpperCase()}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+          <button style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
             <Share2 size={16}/> Share
           </button>
           <div style={{ width: '1px', height: '20px', background: '#444' }}></div>
@@ -198,7 +186,7 @@ export default function EditorView() {
           </button>
           
           {project.type === 'latex' && (
-            <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
             </button>
           )}
@@ -208,7 +196,7 @@ export default function EditorView() {
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Files</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }}><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }}><FolderPlus size={14}/></button>
@@ -235,16 +223,7 @@ export default function EditorView() {
                 theme="vs-dark"
                 value={activeDoc?.content || ''}
                 onChange={handleEditorChange}
-                options={{ 
-                  fontSize: 16, 
-                  minimap: { enabled: false }, 
-                  wordWrap: 'on', 
-                  lineNumbers: 'on', 
-                  padding: { top: 16 },
-                  renderWhitespace: 'none',
-                  cursorBlinking: 'smooth',
-                  smoothScrolling: true
-                }}
+                options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
               />
             </div>
             <div onMouseDown={startResizing} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
@@ -256,16 +235,16 @@ export default function EditorView() {
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
                   <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                  <span>Compiling preview...</span>
+                  <span>PDF wordt geladen...</span>
                 </div>
               )}
             </div>
           </>
         ) : (
           <div style={{ flex: 1, background: '#000', padding: '40px', overflowY: 'auto' }}>
-            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Compilation Error Logs</h2>
-            <pre style={{ background: '#111', padding: '24px', borderRadius: '12px', color: '#ddd', fontSize: '14px', whiteSpace: 'pre-wrap', fontFamily: '"JetBrains Mono", monospace' }}>{logs}</pre>
-            <button onClick={() => setView('split')} style={{ marginTop: '20px', background: '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>Close</button>
+            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Compilatie Fouten</h2>
+            <pre style={{ background: '#111', padding: '24px', borderRadius: '12px', color: '#ddd', fontSize: '14px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>
+            <button onClick={() => setView('split')} style={{ marginTop: '20px', background: '#333', color: 'white', border: 'none', padding: '10px 24px', borderRadius: '6px', cursor: 'pointer' }}>Sluiten</button>
           </div>
         )}
       </main>
