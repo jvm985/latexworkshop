@@ -95,6 +95,7 @@ export default function EditorView() {
 
   const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst') => {
       const errors: any[] = [];
+      if (!rawLogs) return errors;
       const lines = rawLogs.split('\n');
       if (type === 'typst') {
           for (let i = 0; i < lines.length; i++) {
@@ -132,8 +133,9 @@ export default function EditorView() {
     if (compiling && isAuto) return;
     setCompiling(true);
     try {
+      const currentDocName = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current)?.name : null;
       const res = await axios.post(`${API_URL}/compile/${id}`, {
-          preferredMain: activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current)?.name : null
+          preferredMain: currentDocName
       }, { 
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
@@ -185,15 +187,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -248,6 +245,7 @@ export default function EditorView() {
   };
 
   const switchDoc = (newDoc: any) => {
+      if (!newDoc) return;
       if (newDoc.isFolder) {
           const folderKey = newDoc.path + newDoc.name + "/";
           setExpandedFolders(prev => ({ ...prev, [folderKey]: !prev[folderKey] }));
@@ -316,6 +314,7 @@ export default function EditorView() {
   };
 
   const convertProject = async () => {
+      if (!project) return;
       if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
       setCompiling(true);
       try {
@@ -428,25 +427,27 @@ export default function EditorView() {
     });
   };
 
+  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px', fontWeight: 700 }}>{project.name}</span>
-            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888' }}>{project.type.toUpperCase()}</span>
+            <span style={{ fontSize: '14px', fontWeight: 700 }}>{project?.name || 'Loading...'}</span>
+            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888' }}>{project?.type?.toUpperCase()}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
           <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
-            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
+            <RefreshCw size={16}/> {project?.type === 'latex' ? '-> Typst' : '-> LaTeX'}
           </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
-          {project.type === 'latex' && (
+          {project?.type === 'latex' && (
             <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
             </button>
@@ -480,7 +481,7 @@ export default function EditorView() {
             {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
                 <Editor
                     height="100%"
-                    language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
+                    language={activeDoc.name?.endsWith('.tex') ? 'latex' : (project?.type === 'typst' ? 'typst' : 'latex')}
                     theme="vs-dark"
                     value={activeDoc.content || ''}
                     onChange={handleEditorChange}
@@ -489,7 +490,7 @@ export default function EditorView() {
                 />
             ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
-                    {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
+                    {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc?.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
                 </div>
             )}
             </div>
@@ -521,7 +522,7 @@ export default function EditorView() {
                     )}
                     {(pdfUrlA || pdfUrlB) && (
                         <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                            <a href={activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                            <a href={activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!} download={`${project?.name || 'project'}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
                             <button onClick={() => window.open(activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
                         </div>
                     )}
@@ -548,7 +549,7 @@ export default function EditorView() {
             </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label>
-              <select value={project.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}>
+              <select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}>
                 <option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option>
               </select>
             </div>
@@ -573,10 +574,10 @@ export default function EditorView() {
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>
               <div style={{ marginTop: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project.owner.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Eigenaar</div></div>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Eigenaar</div></div>
                 </div>
-                {project.sharedWith.map((s: any) => (
+                {project?.sharedWith?.map((s: any) => (
                   <div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div>
                     <div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Kan {s.permission === 'read' ? 'lezen' : 'bewerken'}</div></div>
