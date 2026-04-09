@@ -8,7 +8,7 @@ import {
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
-  Settings
+  Settings, Download, Maximize2
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -18,8 +18,33 @@ import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
 
-// --- CUSTOM MONACO SETUP ---
+// --- ADVANCED MONACO SETUP ---
 loader.init().then(monaco => {
+  // LaTeX Highlighting
+  monaco.languages.register({ id: 'latex' });
+  monaco.languages.setMonarchTokensProvider('latex', {
+    defaultToken: '',
+    tokenPostfix: '.latex',
+    tokenizer: {
+      root: [
+        [/\\(?:[a-zA-Z]+|.)/, 'keyword'],
+        [/\{/, { token: 'delimiter.curly', bracket: '@open' }],
+        [/\}/, { token: 'delimiter.curly', bracket: '@close' }],
+        [/\[/, { token: 'delimiter.square', bracket: '@open' }],
+        [/\]/, { token: 'delimiter.square', bracket: '@close' }],
+        [/%/, { token: 'comment', next: '@comment' }],
+        [/\$.*?\$/, 'variable'],
+        [/&/, 'operator'],
+        [/\\\\/, 'operator'],
+      ],
+      comment: [
+        [/[^%]+/, 'comment'],
+        [/$/, 'comment', '@pop'],
+      ],
+    }
+  });
+
+  // Typst Highlighting
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -73,9 +98,18 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      
       setPdfUrl(prev => {
-          if (prev) window.URL.revokeObjectURL(prev);
+          // Optimization: Only update if strictly necessary to reduce flash
+          // In React-PDF-Viewer, a new URL usually triggers a reload.
+          // Revoking the OLD URL helps memory.
+          if (prev) {
+              // We delay the revoke slightly to allow the new PDF to load
+              const old = prev;
+              setTimeout(() => window.URL.revokeObjectURL(old), 1000);
+          }
           return url;
       });
       setLogs(null);
@@ -131,8 +165,11 @@ export default function EditorView() {
     socket.emit('join-document', activeDoc._id);
     
     const onUpdate = (content: string) => {
+      // Important: only update if it's really a different content from another user
       if (activeDoc.content !== content) {
         setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+        // Update documents list too
+        setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content } : d));
       }
     };
     socket.on('document-updated', onUpdate);
@@ -145,9 +182,17 @@ export default function EditorView() {
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
-    setActiveDoc({ ...activeDoc, content: value });
+    
+    // 1. Update local active state
+    setActiveDoc((prev: any) => ({ ...prev, content: value }));
+    
+    // 2. CRITICAL: Update the documents list so switching back preserves changes!
+    setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
+    
+    // 3. Emit to server
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
+    // 4. Auto-compile for Typst
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 1500);
@@ -216,7 +261,7 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- IMPROVED TREE LOGIC ---
+  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {}, _doc: null };
     documents.forEach(doc => {
@@ -227,10 +272,8 @@ export default function EditorView() {
       parts.forEach((part: string, index: number) => {
         const isLast = index === parts.length - 1;
         if (isLast && !doc.isFolder) {
-          // File node
           current._children[part] = doc;
         } else {
-          // Folder node
           if (!current._children[part] || !current._children[part]._isFolder) {
             current._children[part] = { _isFolder: true, _children: {}, _doc: null };
           }
@@ -283,7 +326,7 @@ export default function EditorView() {
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
                 {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
-            {activeDoc?._id === doc?._id && (
+            {activeDoc?._id === (doc?._id || null) && (
                 <div style={{ display: 'flex', gap: '8px' }}>
                     {doc && !isFolderNode && !doc.isMain && !doc.isBinary && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
                     {doc && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>}
@@ -363,11 +406,22 @@ export default function EditorView() {
               )}
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
-            <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden' }}>
+            <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
               {pdfUrl ? (
-                <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
-                  <Viewer fileUrl={pdfUrl} theme="dark" plugins={[defaultLayoutPluginInstance]} />
-                </Worker>
+                <div style={{ height: '100%', width: '100%' }}>
+                    {/* Header bar for PDF viewer */}
+                    <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
+                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF">
+                            <Download size={16}/>
+                        </a>
+                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab">
+                            <Maximize2 size={16}/>
+                        </button>
+                    </div>
+                    <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
+                        <Viewer fileUrl={pdfUrl} theme="dark" plugins={[defaultLayoutPluginInstance]} />
+                    </Worker>
+                </div>
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
                   <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>

@@ -11,11 +11,9 @@ klaar
 
 to do
 -----
--pdf error: ! Package babel Error: Unknown option `dutch'. Either you misspelled it
-(babel)                or the language definition file dutch.ldf was not found.
 
 -latex syntax highlighting toevoegen 
--de geimporteerde projecten hebben een totaal foute bestanden lijst en structuur
+-de wijzigingen worden niet bewaard: wanneer ik naar een ander bestand ga, moeten die worden opgeslagen
 -wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
 
 
