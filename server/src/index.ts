@@ -17,7 +17,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+const io = new Server(httpServer, { 
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  allowEIO3: true
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -162,8 +165,6 @@ app.post('/api/convert/:id', authenticate, async (req: any, res) => {
             const inputFormat = project.type === 'latex' ? 'latex' : 'typst';
             const outputFormat = targetType;
             const newName = doc.name.replace(/\.(tex|typ)$/, outputFormat === 'latex' ? '.tex' : '.typ');
-            
-            // Note: Pandoc typst support might be experimental or require specific versions
             const cmd = `echo ${JSON.stringify(doc.content)} | pandoc -f ${inputFormat} -t ${outputFormat}`;
             exec(cmd, async (error, stdout) => {
                 if (!error) {
@@ -188,18 +189,30 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   fs.mkdirSync(workDir, { recursive: true });
 
   let mainFile = '';
+  let fallbackFile = '';
+
   for (const doc of documents) {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     if (doc.isBinary && doc.binaryData) fs.writeFileSync(fullPath, doc.binaryData);
     else fs.writeFileSync(fullPath, doc.content);
     
-    if (doc.name === 'main.tex' || doc.name === 'main.typ') mainFile = doc.name;
+    if (project.type === 'typst') {
+        if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
+        if (!fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
+    } else {
+        if (doc.name === 'main.tex') mainFile = doc.name;
+        if (!fallbackFile && doc.name.endsWith('.tex')) {
+            // Check for documentclass to find the REAL main file
+            if (doc.content.includes('\\documentclass')) fallbackFile = doc.name;
+        }
+    }
   }
+
+  if (!mainFile) mainFile = fallbackFile || (documents.find(d => !d.isBinary)?.name || '');
+
   if (!mainFile) {
-      const ext = project.type === 'typst' ? '.typ' : '.tex';
-      const fallback = documents.find(d => d.name.endsWith(ext));
-      mainFile = fallback ? fallback.name : (documents[0]?.name || '');
+      return res.status(400).json({ error: 'Geen compileerbaar bestand gevonden in dit project.' });
   }
 
   let command = '';
@@ -215,7 +228,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
   }
 
-  console.log(`Compiling project ${project.name} with command: ${command}`);
+  console.log(`Compiling project ${project.name} (${project.type}) with command: ${command}`);
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
@@ -223,7 +236,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
       console.error(`Compilation failed for ${project.name}: ${stdout} ${stderr}`);
-      res.status(500).json({ error: 'Compilation failed', logs: stdout + "\n" + stderr });
+      res.status(500).json({ error: 'Compilatie mislukt. Zie logs voor details.', logs: stdout + "\n" + stderr });
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });
