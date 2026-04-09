@@ -1,6 +1,7 @@
-FROM node:20-bullseye
+FROM node:20-bookworm
 
-# Install Full TeXLive and compilers + Pandoc for conversion + Dutch language support
+# Install TeXLive 2022+ and compilers + Pandoc + Dutch language support
+# Bookworm includes newer tabularray package in texlive-latex-extra
 RUN apt-get update && apt-get install -y \
     texlive-latex-base \
     texlive-latex-extra \
@@ -15,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     xz-utils \
     pandoc \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Typst
