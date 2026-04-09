@@ -88,6 +88,7 @@ export default function EditorView() {
   const currentContentRef = useRef<string>('');
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
@@ -106,7 +107,7 @@ export default function EditorView() {
       setPdfUrl(prev => {
           if (prev) {
               const old = prev;
-              setTimeout(() => window.URL.revokeObjectURL(old), 2000);
+              setTimeout(() => window.URL.revokeObjectURL(old), 3000);
           }
           return url;
       });
@@ -119,8 +120,8 @@ export default function EditorView() {
           try {
             const result = JSON.parse(reader.result as string);
             setLogs(result.logs || 'Compilation failed.');
-            if (!isAuto || project?.type === 'typst') setView('logs');
-          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
+            if (project?.type === 'typst' || !isAuto) setView('logs');
+          } catch(e) { setLogs('Compilation error.'); setView('logs'); }
         };
         reader.readAsText(err.response.data);
       }
@@ -144,15 +145,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -216,24 +212,34 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
       const files = e.target.files;
       if (!files) return;
       
-      let path = "";
-      if (activeDoc && activeDoc.isFolder) path = activeDoc.path + activeDoc.name + "/";
-      else if (activeDoc && activeDoc.path) path = activeDoc.path;
+      let basePath = "";
+      if (activeDoc && activeDoc.isFolder) basePath = activeDoc.path + activeDoc.name + "/";
+      else if (activeDoc && activeDoc.path) basePath = activeDoc.path;
 
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
+          const relativePath = (file as any).webkitRelativePath || "";
+          let finalPath = basePath;
+          let name = file.name;
+
+          if (isFolder && relativePath) {
+              const parts = relativePath.split('/');
+              name = parts.pop()!;
+              finalPath = basePath + parts.join('/') + (parts.length > 0 ? "/" : "");
+          }
+
           const reader = new FileReader();
           reader.onload = async () => {
               const base64 = (reader.result as string).split(',')[1];
               await axios.post(`${API_URL}/projects/${id}/files`, { 
-                  name: file.name, 
+                  name, 
                   isFolder: false, 
                   isBinary: true, 
-                  path, 
+                  path: finalPath, 
                   binaryData: base64 
               }, { headers: { Authorization: `Bearer ${token}` } });
               if (i === files.length - 1) fetchAll();
@@ -402,7 +408,9 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)} title="New File"><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)} title="New Folder"><FolderPlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => fileInputRef.current?.click()} title="Upload Files"><Upload size={14}/></button>
-              <input type="file" ref={fileInputRef} onChange={handleUpload} multiple style={{ display: 'none' }}/>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => folderInputRef.current?.click()} title="Upload Folder"><Folder size={14}/></button>
+              <input type="file" ref={fileInputRef} onChange={(e) => handleUpload(e, false)} multiple style={{ display: 'none' }}/>
+              <input type="file" ref={folderInputRef} onChange={(e) => handleUpload(e, true)} multiple {...{webkitdirectory: "", directory: ""} as any} style={{ display: 'none' }}/>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
