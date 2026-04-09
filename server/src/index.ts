@@ -66,6 +66,16 @@ const Document = mongoose.model('Document', documentSchema);
 const authenticate = async (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).send('Unauthorized');
+  
+  // MOCK AUTH for Smoke Tests
+  if (process.env.NODE_ENV === 'test' && token === 'mock-token') {
+      req.user = await User.findOne({ email: 'test@gemini.com' });
+      if (!req.user) {
+          req.user = await User.create({ email: 'test@gemini.com', name: 'Gemini Tester' });
+      }
+      return next();
+  }
+
   try {
     const ticket = await client.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();

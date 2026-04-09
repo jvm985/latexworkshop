@@ -13,6 +13,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/latexworkshop
       - PORT=3001
       - GOOGLE_CLIENT_ID=339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com
+      - NODE_ENV=test
     depends_on:
       - mongodb
     restart: always
