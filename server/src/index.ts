@@ -54,7 +54,9 @@ const Project = mongoose.model('Project', projectSchema);
 const documentSchema = new mongoose.Schema({
   project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
   name: { type: String, required: true },
-  content: { type: String, default: '' }
+  path: { type: String, default: '' }, // e.g., 'sections/' or '' for root
+  content: { type: String, default: '' },
+  isFolder: { type: Boolean, default: false }
 });
 const Document = mongoose.model('Document', documentSchema);
 
@@ -87,10 +89,7 @@ app.post('/api/auth/google', async (req, res) => {
 
 app.get('/api/projects', authenticate, async (req: any, res) => {
   const projects = await Project.find({
-    $or: [
-      { owner: req.user._id },
-      { 'sharedWith.email': req.user.email }
-    ]
+    $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }]
   }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(projects);
 });
@@ -99,42 +98,27 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
   const { name, type } = req.body;
   const compiler = type === 'typst' ? 'typst' : 'pdflatex';
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
-  
   const mainFile = type === 'typst' ? 'main.typ' : 'main.tex';
-  const content = type === 'typst' ? '= Hello Typst\nThis is a modern document.' : '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
-  
+  const content = type === 'typst' ? '= Hello Typst' : '\\documentclass{article}\n\\begin{document}\nHello!\n\\end{document}';
   await Document.create({ project: project._id, name: mainFile, content });
   res.json(project);
 });
 
 app.get('/api/projects/:id', authenticate, async (req: any, res) => {
-  const project = await Project.findOne({ 
-    _id: req.params.id, 
-    $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] 
-  });
+  const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
   const documents = await Document.find({ project: project._id });
   res.json({ project, documents });
 });
 
-// Update project settings (compiler, name)
-app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
-  const project = await Project.findOneAndUpdate(
-    { _id: req.params.id, owner: req.user._id },
-    req.body,
-    { new: true }
-  );
-  res.json(project);
+app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
+  const { name, path, isFolder } = req.body;
+  const doc = await Document.create({ project: req.params.id, name, path, isFolder, content: '' });
+  res.json(doc);
 });
 
-// Sharing Logic
-app.post('/api/projects/:id/share', authenticate, async (req: any, res) => {
-  const { email, permission } = req.body;
-  const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
-  if (!project) return res.status(404).send('Not found');
-  
-  project.sharedWith.push({ email, permission });
-  await project.save();
+app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
+  const project = await Project.findOneAndUpdate({ _id: req.params.id, owner: req.user._id }, req.body, { new: true });
   res.json(project);
 });
 
@@ -143,29 +127,21 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
   
-  const documents = await Document.find({ project: project._id });
+  const documents = await Document.find({ project: project._id, isFolder: false });
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
   for (const doc of documents) {
-    fs.writeFileSync(path.join(workDir, doc.name), doc.content);
+    const fullPath = path.join(workDir, doc.path, doc.name);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, doc.content);
   }
 
-  let command = '';
   const mainFile = project.type === 'typst' ? 'main.typ' : 'main.tex';
-  const outputFile = 'main.pdf';
-
-  if (project.type === 'typst') {
-    command = `typst compile ${mainFile} ${outputFile}`;
-  } else {
-    // LaTeX with Resume on Errors and multiple compilers
-    const compiler = project.compiler || 'pdflatex';
-    // latexmk automates multiple runs and biber
-    command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
-  }
+  let command = project.type === 'typst' ? `typst compile ${mainFile} main.pdf` : `latexmk -${project.compiler} -interaction=nonstopmode -f ${mainFile}`;
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
-    const pdfPath = path.join(workDir, outputFile);
+    const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
