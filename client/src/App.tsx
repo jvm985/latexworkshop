@@ -2,31 +2,24 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
-import { FileText, LogOut, Plus, Layout } from 'lucide-react';
+import { FileText, LogOut, Plus, Layout, Users } from 'lucide-react';
 import EditorView from './Editor';
 
 const API_URL = '/api';
 
 function Login() {
   const navigate = useNavigate();
-
-  const handleLogin = async (credentialResponse: any) => {
-    try {
-      const res = await axios.post(`${API_URL}/auth/google`, { credential: credentialResponse.credential });
-      localStorage.setItem('latex_token', res.data.token);
-      localStorage.setItem('latex_user', JSON.stringify(res.data.user));
-      navigate('/');
-    } catch (err) {
-      alert('Login failed');
-    }
+  const handleLogin = async (res: any) => {
+    const { data } = await axios.post(`${API_URL}/auth/google`, { credential: res.credential });
+    localStorage.setItem('latex_token', data.token);
+    localStorage.setItem('latex_user', JSON.stringify(data.user));
+    navigate('/');
   };
-
   return (
     <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f5f5f7' }}>
       <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', textAlign: 'center' }}>
-        <h1 style={{ marginBottom: '20px' }}><Layout style={{ marginRight: '10px', verticalAlign: 'middle' }}/> LaTeX Workshop</h1>
-        <p style={{ color: '#666', marginBottom: '30px' }}>Log in om verder te gaan</p>
-        <GoogleLogin onSuccess={handleLogin} onError={() => console.log('Login Failed')} />
+        <h1><Layout /> Workshop</h1>
+        <GoogleLogin onSuccess={handleLogin} />
       </div>
     </div>
   );
@@ -34,64 +27,46 @@ function Login() {
 
 function Dashboard() {
   const [projects, setProjects] = useState([]);
-  const [newProjectName, setNewProjectName] = useState('');
+  const [name, setName] = useState('');
+  const [type, setType] = useState('latex');
   const navigate = useNavigate();
   const token = localStorage.getItem('latex_token');
 
   useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    const fetchProjects = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
-        setProjects(res.data);
-      } catch(e) {
-        if (axios.isAxiosError(e) && e.response?.status === 401) {
-          navigate('/login');
-        }
-      }
-    };
-    fetchProjects();
-  }, [navigate, token]);
+    if (!token) return navigate('/login');
+    axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setProjects(res.data));
+  }, [token]);
 
-  const createProject = async () => {
-    if (!newProjectName) return;
-    const res = await axios.post(`${API_URL}/projects`, { name: newProjectName }, { headers: { Authorization: `Bearer ${token}` } });
+  const create = async () => {
+    if (!name) return;
+    const res = await axios.post(`${API_URL}/projects`, { name, type }, { headers: { Authorization: `Bearer ${token}` } });
     navigate(`/project/${res.data._id}`);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('latex_token');
-    localStorage.removeItem('latex_user');
-    navigate('/login');
   };
 
   return (
     <div style={{ padding: '40px', maxWidth: '1000px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px' }}>
         <h1>Mijn Projecten</h1>
-        <button onClick={logout} style={{ display: 'flex', alignItems: 'center', padding: '8px 16px', background: '#eee', border: 'none', borderRadius: '8px', cursor: 'pointer' }}><LogOut size={16} style={{ marginRight: '8px' }}/> Uitloggen</button>
+        <button onClick={() => { localStorage.clear(); navigate('/login'); }}><LogOut /> Uitloggen</button>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
-        <input 
-          value={newProjectName} 
-          onChange={(e) => setNewProjectName(e.target.value)} 
-          placeholder="Nieuwe project naam..." 
-          style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ccc', flex: 1 }}
-        />
-        <button onClick={createProject} style={{ display: 'flex', alignItems: 'center', padding: '10px 20px', background: '#0071e3', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-          <Plus size={18} style={{ marginRight: '8px' }}/> Nieuw Project
-        </button>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px', background: 'white', padding: '20px', borderRadius: '12px' }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Project naam..." style={{ flex: 1, padding: '10px' }}/>
+        <select value={type} onChange={e => setType(e.target.value)} style={{ padding: '10px' }}>
+          <option value="latex">LaTeX</option>
+          <option value="typst">Typst</option>
+        </select>
+        <button onClick={create} style={{ background: '#0071e3', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px' }}><Plus /> Nieuw</button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px' }}>
         {projects.map((p: any) => (
-          <div key={p._id} onClick={() => navigate(`/project/${p._id}`)} style={{ background: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', cursor: 'pointer', border: '1px solid transparent', transition: 'border-color 0.2s' }}>
-            <h3 style={{ display: 'flex', alignItems: 'center', margin: '0 0 10px 0' }}><FileText size={18} style={{ marginRight: '10px', color: '#666' }}/> {p.name}</h3>
-            <p style={{ color: '#888', fontSize: '12px', margin: 0 }}>Aangepast: {new Date(p.lastModified).toLocaleDateString()}</p>
+          <div key={p._id} onClick={() => navigate(`/project/${p._id}`)} style={{ background: 'white', padding: '20px', borderRadius: '12px', cursor: 'pointer', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '10px', background: '#eee', padding: '2px 6px', borderRadius: '4px' }}>{p.type.toUpperCase()}</div>
+            <h3><FileText size={18} /> {p.name}</h3>
+            <p style={{ fontSize: '12px', color: '#888' }}>
+              Owner: {p.owner.email === JSON.parse(localStorage.getItem('latex_user') || '{}').email ? 'Me' : p.owner.name}
+            </p>
           </div>
         ))}
       </div>
