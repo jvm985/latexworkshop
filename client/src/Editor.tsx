@@ -19,7 +19,7 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  monaco.languages.register({ id: 'latex' });
+  // Custom Typst syntax highlighting
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
