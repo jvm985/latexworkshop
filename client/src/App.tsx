@@ -3,8 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { 
-  FileText, LogOut, Layout, Clock, FolderPlus, 
-  Search, Grid, List, Settings, User as UserIcon, Plus
+  FileText, LogOut, Layout, Clock, 
+  Search, Grid, Settings, User as UserIcon, Plus
 } from 'lucide-react';
 import EditorView from './Editor';
 
@@ -42,8 +42,17 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   useEffect(() => {
-    if (!token) return navigate('/login');
-    axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setProjects(res.data));
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchProjects = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+        setProjects(res.data);
+      } catch (e) { /* silent fail */ }
+    };
+    fetchProjects();
   }, [token, navigate]);
 
   const create = async () => {
@@ -56,7 +65,6 @@ function Dashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#121212', color: 'white', fontFamily: '"Inter", sans-serif' }}>
-      {/* Sidebar */}
       <aside style={{ width: '260px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
           <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={20}/></div>
@@ -85,7 +93,6 @@ function Dashboard() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <header style={{ padding: '24px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>

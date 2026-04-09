@@ -6,7 +6,7 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
-  Settings, AlertCircle, Share2, Download
+  AlertCircle
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -19,14 +19,14 @@ loader.init().then(monaco => {
       root: [
         [/^#.*/, 'comment'],
         [/^= .*/, 'keyword'],
-        [/\[/, { token: 'string', bracket: '@open', next: '@string' }],
+        [/\[/, { token: 'string', bracket: '@open', next: '@string' } as any],
         [/\$.*\$/, 'variable'],
         [/[{}()\[\]]/, '@brackets'],
         [/[a-zA-Z_]\w*/, 'identifier'],
       ],
       string: [
         [/[^\]]+/, 'string'],
-        [/\]/, { token: 'string', bracket: '@close', next: '@pop' }],
+        [/\]/, { token: 'string', bracket: '@close', next: '@pop' } as any],
       ],
     }
   });
@@ -47,35 +47,38 @@ export default function EditorView() {
 
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-    } catch (e) { navigate('/'); }
-  };
-
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchAll = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        setProject(res.data.project);
+        setDocuments(res.data.documents);
+        if (res.data.documents.length > 0) {
+          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+          setActiveDoc(main);
+        }
+      } catch (e) { navigate('/'); }
+    };
     fetchAll();
+
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
-  }, [id, navigate, token]);
+  }, [id, token, navigate]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current) return;
     const socket = socketRef.current;
     socket.emit('join-document', activeDoc._id);
+    
     const onUpdate = (content: string) => {
-      if (activeDoc.content !== content) {
-        setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
-      }
+      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
     };
     socket.on('document-updated', onUpdate);
+    
     return () => {
       socket.emit('leave-document', activeDoc._id);
       socket.off('document-updated', onUpdate);
@@ -95,15 +98,17 @@ export default function EditorView() {
       setPdfUrl(url);
     } catch (err: any) {
       if (!isAuto) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const result = JSON.parse(reader.result as string);
-            setLogs(result.logs);
-            setView('logs');
-          } catch(e) { setLogs('Compilation error.'); setView('logs'); }
-        };
-        if (err.response?.data) reader.readAsText(err.response.data);
+        if (err.response?.data instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const result = JSON.parse(reader.result as string);
+              setLogs(result.logs);
+              setView('logs');
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+          };
+          reader.readAsText(err.response.data);
+        }
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -113,7 +118,6 @@ export default function EditorView() {
     setActiveDoc({ ...activeDoc, content: value });
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
 
-    // Real-time Typst Compilation
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 1000);
@@ -124,14 +128,15 @@ export default function EditorView() {
     const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
     if (!name) return;
     await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path: '' }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchAll();
+    
+    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    setDocuments(res.data.documents);
   };
 
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Editor...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
-      {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={20}/></button>
@@ -152,13 +157,12 @@ export default function EditorView() {
       </nav>
 
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* SIDEBAR */}
         <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Files</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <FilePlus size={14} color="#888" style={{ cursor: 'pointer' }} onClick={() => addFile(false)}/>
-              <FolderPlus size={14} color="#888" style={{ cursor: 'pointer' }} onClick={() => addFile(true)}/>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -182,7 +186,6 @@ export default function EditorView() {
 
         {view === 'split' ? (
           <>
-            {/* EDITOR */}
             <div style={{ flex: 1, position: 'relative' }}>
               <Editor
                 height="100%"
@@ -199,14 +202,13 @@ export default function EditorView() {
                   lineNumbers: 'on',
                   padding: { top: 16 },
                   smoothScrolling: true,
-                  cursorBlink: 'smooth'
+                  cursorBlinking: 'smooth'
                 }}
               />
             </div>
-            {/* PREVIEW */}
             <div style={{ flex: 1, background: '#2d2d2d', borderLeft: '1px solid #111' }}>
               {pdfUrl ? (
-                <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} width="100%" height="100%" style={{ border: 'none' }} />
+                <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} width="100%" height="100%" style={{ border: 'none' }} title="PDF Preview" />
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#555' }}>
                   <Eye size={48} style={{ marginBottom: '16px', opacity: 0.1 }}/>
