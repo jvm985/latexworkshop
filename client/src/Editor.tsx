@@ -19,7 +19,6 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  monaco.languages.register({ id: 'latex' });
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -72,24 +71,21 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      setPdfUrl(url);
       setLogs(null);
     } catch (err: any) {
-      if (!isAuto) {
-        if (err.response?.data instanceof Blob) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const result = JSON.parse(reader.result as string);
-              setLogs(result.logs || 'Compilation failed.');
-              setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
-          };
-          reader.readAsText(err.response.data);
-        } else {
-          setLogs('Server error during compilation.');
-          setView('logs');
-        }
+      if (err.response?.data instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const result = JSON.parse(reader.result as string);
+            setLogs(result.logs || 'Compilation failed.');
+            // Only jump to logs if NOT auto-compiling, or if it's a new error
+            if (!isAuto) setView('logs');
+          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
+        };
+        reader.readAsText(err.response.data);
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -114,7 +110,6 @@ export default function EditorView() {
         return;
     }
     fetchAll(true);
-    // Use ONLY websocket transport to avoid 400 polling errors with Nginx proxy
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
     return () => { 
         socketRef.current?.disconnect(); 
@@ -176,7 +171,6 @@ export default function EditorView() {
     fetchAll();
   };
 
-  // Resizing Logic
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
@@ -201,86 +195,61 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE LOGIC ---
-  const buildTree = () => {
-    const root: any = { files: [], folders: {} };
-    documents.forEach(doc => {
-      const parts = doc.path.split('/').filter(Boolean);
-      let current = root;
-      parts.forEach((part: string) => {
-        if (!current.folders[part]) current.folders[part] = { files: [], folders: {} };
-        current = current.folders[part];
-      });
-      if (doc.isFolder) {
-        if (!current.folders[doc.name]) current.folders[doc.name] = { files: [], folders: {} };
-        current.folders[doc.name]._doc = doc;
+  const tree = documents.reduce((acc: any, doc: any) => {
+    const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
+    if (doc.isFolder) parts.push(doc.name); 
+    
+    let current = acc;
+    parts.forEach((part: string, index: number) => {
+      if (index === parts.length - 1 && !doc.isFolder) {
+        current[part] = doc;
       } else {
-        current.files.push(doc);
+        current[part] = current[part] || { _isFolderNode: true, _children: {} };
+        current = current[part]._children;
       }
     });
-    return root;
-  };
+    return acc;
+  }, {});
 
   const renderNode = (node: any, path: string, depth: number) => {
-    const keys = Object.keys(node.folders).sort();
-    const files = node.files.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    const keys = Object.keys(node).sort((a,b) => {
+        const isAFolder = !!node[a]._isFolderNode;
+        const isBFolder = !!node[b]._isFolderNode;
+        if (isAFolder && !isBFolder) return -1;
+        if (!isAFolder && isBFolder) return 1;
+        return a.localeCompare(b);
+    });
 
-    return (
-      <>
-        {keys.map(key => {
-          const item = node.folders[key];
-          const folderPath = `${path}${key}/`;
-          const isExpanded = expandedFolders[folderPath];
-          const folderDoc = item._doc;
+    return keys.map(key => {
+      const item = node[key];
+      const isFolderNode = !!item._isFolderNode;
+      const folderPath = `${path}${key}/`;
+      const isExpanded = expandedFolders[folderPath];
 
-          return (
-            <div key={folderPath}>
-              <div 
-                onClick={() => {
-                    setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
-                    if (folderDoc) setActiveDoc(folderDoc);
-                }} 
-                style={{ 
-                  display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
-                  cursor: 'pointer', fontSize: '13px', 
-                  background: activeDoc?._id === folderDoc?._id ? '#37373d' : 'transparent', 
-                  color: activeDoc?._id === folderDoc?._id ? '#fff' : '#aaa', 
-                  gap: '8px',
-                  justifyContent: 'space-between'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-                    <Folder size={14} style={{ color: '#dcb67a' }}/>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
-                </div>
-                {folderDoc && activeDoc?._id === folderDoc?._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(folderDoc._id); }}/>}
-              </div>
-              {isExpanded && renderNode(item, folderPath, depth + 1)}
-            </div>
-          );
-        })}
-        {files.map((file: any) => (
+      return (
+        <div key={folderPath}>
           <div 
-            key={file._id} 
-            onClick={() => setActiveDoc(file)}
+            onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
             style={{ 
-              display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 28}px`, 
-              cursor: 'pointer', fontSize: '13px',
-              background: activeDoc?._id === file._id ? '#37373d' : 'transparent',
-              color: activeDoc?._id === file._id ? 'white' : '#aaa',
+              display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
+              cursor: 'pointer', fontSize: '13px', 
+              background: activeDoc?._id === item._id ? '#37373d' : 'transparent', 
+              color: activeDoc?._id === item._id ? '#fff' : '#aaa', 
+              gap: '8px',
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-              <FileText size={14} color={file.isBinary ? "#dcb67a" : "#519aba"}/>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
+                {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : <FileText size={14} color={item.isBinary ? "#dcb67a" : "#519aba"}/>}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
             </div>
-            {activeDoc?._id === file._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(file._id); }}/>}
+            {!isFolderNode && activeDoc?._id === item._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(item._id); }}/>}
           </div>
-        ))}
-      </>
-    );
+          {isFolderNode && isExpanded && renderNode(item._children, folderPath, depth + 1)}
+        </div>
+      );
+    });
   };
 
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
@@ -323,7 +292,7 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(tree, '/', 0)}</div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
