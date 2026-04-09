@@ -110,8 +110,13 @@ export default function EditorView() {
       } else {
           let currentFile = 'main.tex';
           for (let i = 0; i < lines.length; i++) {
-              const fileMatch = lines[i].match(/\((.*?\.tex)/);
-              if (fileMatch) currentFile = fileMatch[1].replace('./', '');
+              // Try to find the file from (filename.tex or (./filename.tex
+              const fileMatch = lines[i].match(/\(([^()]*?\.tex)/);
+              if (fileMatch) {
+                  const cleaned = fileMatch[1].replace(/^\.\//, '');
+                  if (!cleaned.includes('/usr/')) currentFile = cleaned;
+              }
+              
               const lineMatch = lines[i].match(/^l\.(\d+)/);
               if (lineMatch) {
                   errors.push({
@@ -142,11 +147,11 @@ export default function EditorView() {
       if (activeBuffer === 'a') {
           setPdfUrlB(url);
           setActiveBuffer('b');
-          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 2000);
+          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 3000);
       } else {
           setPdfUrlA(url);
           setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 3000);
       }
       
       setLogs(null);
@@ -182,15 +187,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -227,22 +227,28 @@ export default function EditorView() {
   };
 
   const jumpToError = (error: any) => {
-      const foundDoc = documents.find(d => d.name === error.file || d.name.endsWith(error.file));
+      const foundDoc = documents.find(d => {
+          const fullPath = (d.path + d.name).replace(/^\//, '');
+          return fullPath === error.file || d.name === error.file || error.file.endsWith(d.name);
+      });
+      
       if (foundDoc) {
           switchDoc(foundDoc);
+          // Wait longer for potential re-render/tab switch
           setTimeout(() => {
               if (editorRef.current) {
                   editorRef.current.revealLineInCenter(error.line);
                   editorRef.current.setPosition({ lineNumber: error.line, column: 1 });
                   editorRef.current.focus();
               }
-          }, 100);
+          }, 300);
       }
   };
 
   const switchDoc = (newDoc: any) => {
       if (newDoc.isFolder) {
-          setExpandedFolders(prev => ({ ...prev, [newDoc.path + newDoc.name + "/"]: !prev[newDoc.path + newDoc.name + "/"] }));
+          const folderKey = newDoc.path + newDoc.name + "/";
+          setExpandedFolders(prev => ({ ...prev, [folderKey]: !prev[folderKey] }));
           setActiveDoc(newDoc); 
           return;
       }
