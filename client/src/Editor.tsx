@@ -7,7 +7,8 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
+  Settings
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -51,6 +52,7 @@ export default function EditorView() {
   const [showShare, setShowShare] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
+  const [showSettings, setShowSettings] = useState(false);
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
@@ -155,6 +157,11 @@ export default function EditorView() {
   const setAsMain = async (fileId: string) => {
       await axios.post(`${API_URL}/projects/${id}/files/${fileId}/main`, {}, { headers: { Authorization: `Bearer ${token}` } });
       fetchAll();
+  };
+
+  const updateProject = async (updates: any) => {
+      const res = await axios.patch(`${API_URL}/projects/${id}`, updates, { headers: { Authorization: `Bearer ${token}` } });
+      setProject(res.data);
   };
 
   const addFile = async (isFolder: boolean) => {
@@ -290,6 +297,9 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Settings">
+            <Settings size={16}/>
+          </button>
           <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
             <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
           </button>
@@ -361,6 +371,30 @@ export default function EditorView() {
           </div>
         )}
       </main>
+
+      {showSettings && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2>
+              <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label>
+              <select 
+                value={project.compiler} 
+                onChange={(e) => updateProject({ compiler: e.target.value })}
+                style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}
+              >
+                <option value="pdflatex">pdfLaTeX</option>
+                <option value="xelatex">XeLaTeX (Support for fontspec)</option>
+                <option value="lualatex">LuaLaTeX</option>
+              </select>
+            </div>
+            <button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button>
+          </div>
+        </div>
+      )}
 
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
