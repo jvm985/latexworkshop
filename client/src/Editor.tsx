@@ -145,10 +145,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token]);
 
   useEffect(() => {
