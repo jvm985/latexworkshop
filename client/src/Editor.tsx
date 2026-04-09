@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { 
-  Play, ChevronLeft, AlertCircle, FileText, 
-  Settings, Terminal, Eye, Folder, ChevronRight, ChevronDown, Plus, FilePlus, FolderPlus
+  Play, ChevronLeft, FileText, 
+  Terminal, Eye, Folder, FilePlus, FolderPlus
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -24,7 +24,7 @@ export default function EditorView() {
 
   const token = localStorage.getItem('latex_token');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(res.data.project);
@@ -34,21 +34,40 @@ export default function EditorView() {
         setActiveDoc(main);
       }
     } catch (e) { navigate('/'); }
-  };
+  }, [id, token, navigate, activeDoc]);
 
   useEffect(() => {
-    if (!token) return navigate('/login');
-    loadData();
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchAll = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        setProject(res.data.project);
+        setDocuments(res.data.documents);
+        if (res.data.documents.length > 0) {
+          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+          setActiveDoc(main);
+        }
+      } catch (e) { navigate('/'); }
+    };
+    fetchAll();
+
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
-  }, [id]);
+  }, [id, token, navigate]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current) return;
     const socket = socketRef.current;
     socket.emit('join-document', activeDoc._id);
-    const onUpdate = (content: string) => setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+    
+    const onUpdate = (content: string) => {
+      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+    };
     socket.on('document-updated', onUpdate);
+    
     return () => {
       socket.emit('leave-document', activeDoc._id);
       socket.off('document-updated', onUpdate);
@@ -66,7 +85,10 @@ export default function EditorView() {
     const name = prompt(`Naam voor nieuw ${isFolder ? 'map' : 'bestand'}:`);
     if (!name) return;
     await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path: '' }, { headers: { Authorization: `Bearer ${token}` } });
-    loadData();
+    
+    // Reload documents
+    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    setDocuments(res.data.documents);
   };
 
   const compile = async () => {
@@ -80,7 +102,11 @@ export default function EditorView() {
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
         reader.onload = () => {
-          try { const result = JSON.parse(reader.result as string); setLogs(result.logs); setView('logs'); } catch(e) { setLogs('Error parsing logs'); setView('logs'); }
+          try {
+            const result = JSON.parse(reader.result as string);
+            setLogs(result.logs || 'Fout.');
+            setView('logs');
+          } catch(e) { setLogs('Error parsing logs'); setView('logs'); }
         };
         reader.readAsText(err.response.data);
       }
@@ -91,7 +117,6 @@ export default function EditorView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1e1e1e', color: 'white', fontFamily: 'Inter, sans-serif' }}>
-      {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '50px', background: '#252526', borderBottom: '1px solid #3c3c3c', zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
@@ -111,13 +136,12 @@ export default function EditorView() {
       </nav>
 
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* FILE TREE SIDEBAR */}
         <aside style={{ width: '250px', background: '#252526', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '10px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#888' }}>Explorer</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <FilePlus size={14} style={{ cursor: 'pointer' }} onClick={() => addFile(false)} title="Nieuw bestand"/>
-              <FolderPlus size={14} style={{ cursor: 'pointer' }} onClick={() => addFile(true)} title="Nieuwe map"/>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }}>
@@ -144,7 +168,6 @@ export default function EditorView() {
 
         {view === 'split' ? (
           <>
-            {/* EDITOR */}
             <div style={{ flex: 1, borderRight: '1px solid #333' }}>
               <Editor
                 height="100%"
@@ -152,16 +175,14 @@ export default function EditorView() {
                 theme="vs-dark"
                 value={activeDoc?.content || ''}
                 onChange={handleEditorChange}
-                options={{ wordWrap: 'on', fontSize: 15, minimap: { enabled: false } }}
+                options={{ wordWrap: 'on', fontSize: 15, minimap: { enabled: false }, lineNumbers: 'on', padding: { top: 20 } }}
               />
             </div>
-            {/* PDF PREVIEW */}
             <div style={{ flex: 1, background: '#323639' }}>
-              {pdfUrl ? <iframe src={pdfUrl} width="100%" height="100%" style={{ border: 'none' }} /> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}><Eye size={48} style={{ opacity: 0.2 }}/></div>}
+              {pdfUrl ? <iframe src={pdfUrl} width="100%" height="100%" style={{ border: 'none' }} title="PDF Preview" /> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}><Eye size={48} style={{ opacity: 0.2 }}/></div>}
             </div>
           </>
         ) : (
-          /* LOGS */
           <div style={{ flex: 1, background: '#000', overflowY: 'auto', padding: '40px' }}>
             <pre style={{ color: '#d4d4d4', fontSize: '14px', whiteSpace: 'pre-wrap' }}>{logs || 'No logs.'}</pre>
           </div>
