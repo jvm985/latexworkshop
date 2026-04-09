@@ -1,6 +1,7 @@
 {
   "type": "module",
   "dependencies": {
-    "mongodb": "^6.5.0"
+    "mongodb": "^6.5.0",
+    "axios": "^1.6.0"
   }
 }

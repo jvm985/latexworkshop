@@ -133,6 +133,12 @@ app.post('/api/projects/:id/share', authenticate, async (req: any, res) => {
   res.json(project);
 });
 
+app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
+    await Project.deleteOne({ _id: req.params.id, owner: req.user._id });
+    await Document.deleteMany({ project: req.params.id });
+    res.json({ success: true });
+});
+
 // --- COMPILATION ENGINE ---
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
@@ -148,7 +154,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, doc.content);
     
-    // Determine main file based on project type
     if (project.type === 'typst') {
         if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
     } else {
@@ -156,7 +161,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     }
   }
   
-  // Fallback if no explicit main found
   if (!mainFile) {
       const ext = project.type === 'typst' ? '.typ' : '.tex';
       const fallback = documents.find(d => d.name.endsWith(ext));
@@ -165,7 +169,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
 
   let command = '';
   if (project.type === 'typst') {
-    // If it's a .tex file being compiled as Typst (migration case), rename it temporarily
     if (mainFile.endsWith('.tex')) {
         const newMain = mainFile.replace('.tex', '.typ');
         fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
@@ -173,10 +176,12 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     }
     command = `typst compile ${mainFile} main.pdf`;
   } else {
-    command = `${project.compiler} -interaction=nonstopmode -halt-on-error ${mainFile}`;
+    // Robust LaTeX compilation using latexmk
+    const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
+    command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
   }
 
-  exec(command, { cwd: workDir, timeout: 30000 }, (error, stdout, stderr) => {
+  exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
