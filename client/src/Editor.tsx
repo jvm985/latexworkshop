@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
   Settings, Download, Maximize2, LogOut, Loader2, Upload
 } from 'lucide-react';
 
@@ -66,7 +66,6 @@ export default function EditorView() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
-  const [view, setView] = useState<'split' | 'logs'>('split');
   const [showShare, setShowShare] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
