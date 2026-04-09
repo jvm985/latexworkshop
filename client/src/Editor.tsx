@@ -19,7 +19,6 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  // LaTeX is built-in but Typst needs Monarch
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -73,8 +72,6 @@ export default function EditorView() {
         responseType: 'blob' 
       });
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      
-      // Update PDF URL only if it changed to prevent flash
       setPdfUrl(prev => {
           if (prev) window.URL.revokeObjectURL(prev);
           return url;
@@ -115,11 +112,16 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
-  }, [id, token, navigate]);
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
+  }, [id, token]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current || activeDoc.isBinary || activeDoc.isFolder) return;
@@ -207,22 +209,21 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { _children: {} };
     documents.forEach(doc => {
-      const parts = doc.path.split('/').filter(Boolean);
+      const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
+      if (doc.isFolder) parts.push(doc.name); 
+      
       let current = root;
-      parts.forEach((part: string) => {
-        if (!current._children[part]) current._children[part] = { _isFolderNode: true, _children: {} };
-        current = current._children[part];
+      parts.forEach((part: string, index: number) => {
+        if (index === parts.length - 1 && !doc.isFolder) {
+          current._children[part] = doc;
+        } else {
+          current._children[part] = current._children[part] || { _isFolderNode: true, _children: {} };
+          current = current._children[part]._children;
+        }
       });
-      if (doc.isFolder) {
-        if (!current._children[doc.name]) current._children[doc.name] = { _isFolderNode: true, _children: {} };
-        current._children[doc.name]._doc = doc;
-      } else {
-        current._children[doc.name] = doc;
-      }
     });
     return root;
   };
