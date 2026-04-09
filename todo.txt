@@ -7,12 +7,13 @@ klaar
 -maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. Je moet daarbij connectie maken vanaf mijn lokale pc naar irishof.cloud, anders heeft het geen zin. doe dat eerst.
 -wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
 -maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
+-openen van een latex project duurt heel lang
 
 to do
 -----
--openen van een latex project duurt heel lang
--latex compileert niet omdat ik geen hoofdbestand kan aanduiden
 -latex syntax highlighting toevoegen 
 -de geimporteerde projecten hebben een totaal foute bestanden lijst en structuur
+-wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
+
 
 
