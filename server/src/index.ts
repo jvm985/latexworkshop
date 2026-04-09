@@ -69,7 +69,9 @@ const authenticate = async (req: any, res: any, next: any) => {
     const payload = ticket.getPayload();
     if (!payload || !payload.email) throw new Error('Invalid token');
     req.user = await User.findOne({ email: payload.email });
-    if (!req.user) return res.status(401).send('User not found');
+    if (!req.user) {
+        req.user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
+    }
     next();
   } catch (err) { res.status(401).send('Invalid token'); }
 };
@@ -99,7 +101,7 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
   const compiler = type === 'typst' ? 'typst' : 'pdflatex';
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
   const mainFile = type === 'typst' ? 'main.typ' : 'main.tex';
-  const content = type === 'typst' ? '= Hello Typst' : '\\documentclass{article}\n\\begin{document}\nHello!\n\\end{document}';
+  const content = type === 'typst' ? '#set page(paper: "a4")\n= Hello Typst' : '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
   await Document.create({ project: project._id, name: mainFile, content });
   res.json(project);
 });
@@ -122,6 +124,15 @@ app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
   res.json(project);
 });
 
+app.post('/api/projects/:id/share', authenticate, async (req: any, res) => {
+  const { email, permission } = req.body;
+  const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
+  if (!project) return res.status(404).send('Not found');
+  project.sharedWith.push({ email, permission });
+  await project.save();
+  res.json(project);
+});
+
 // --- COMPILATION ENGINE ---
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
@@ -131,45 +142,33 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
-  // Schrijf bestanden en vind het 'main' bestand
-  let mainFileToCompile = '';
+  let mainFile = '';
   for (const doc of documents) {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, doc.content);
-    
-    // Bepaal welk bestand we gaan compileren
-    if (project.type === 'typst' && (doc.name === 'main.typ' || doc.name === 'main.tex')) {
-        // Forceer .typ extensie voor Typst compiler indien nodig
-        const typstPath = fullPath.endsWith('.typ') ? fullPath : fullPath.replace('.tex', '.typ');
-        if (fullPath !== typstPath) fs.renameSync(fullPath, typstPath);
-        mainFileToCompile = path.basename(typstPath);
-    } else if (project.type === 'latex' && doc.name === 'main.tex') {
-        mainFileToCompile = 'main.tex';
-    }
+    if (doc.name === 'main.tex' || doc.name === 'main.typ') mainFile = doc.name;
+  }
+  if (!mainFile) mainFile = documents[0]?.name || '';
+
+  let command = '';
+  if (project.type === 'typst') {
+    command = `typst compile ${mainFile} main.pdf`;
+  } else {
+    // Robust LaTeX compilation
+    command = `${project.compiler} -interaction=nonstopmode -halt-on-error ${mainFile}`;
   }
 
-  // Fallback: als geen 'main' gevonden, pak de eerste met de juiste extensie
-  if (!mainFileToCompile) {
-    const ext = project.type === 'typst' ? '.typ' : '.tex';
-    const firstMatch = documents.find(d => d.name.endsWith(ext));
-    if (firstMatch) mainFileToCompile = firstMatch.name;
-  }
-
-  if (!mainFileToCompile) {
-    return res.status(400).json({ error: 'Geen hoofd-bestand gevonden om te compileren.' });
-  }
-
-  let command = project.type === 'typst' 
-    ? `typst compile ${mainFileToCompile} main.pdf` 
-    : `latexmk -${project.compiler} -interaction=nonstopmode -f ${mainFileToCompile}`;
-
-  exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
+  exec(command, { cwd: workDir, timeout: 30000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
-      res.status(500).json({ error: 'Compilation failed', logs: stdout + stderr });
+      // Return logs as JSON for the frontend to show
+      res.status(500).json({ 
+        error: 'Compilation failed', 
+        logs: stdout + "\n" + stderr + (error ? "\n" + error.message : "")
+      });
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });
