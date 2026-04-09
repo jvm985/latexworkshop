@@ -19,6 +19,7 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
+  // LaTeX is built-in but Typst needs Monarch
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -71,7 +72,13 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      
+      // Update PDF URL only if it changed to prevent flash
+      setPdfUrl(prev => {
+          if (prev) window.URL.revokeObjectURL(prev);
+          return url;
+      });
       setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
@@ -108,15 +115,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token, navigate]);
 
   useEffect(() => {
