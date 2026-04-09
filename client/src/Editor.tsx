@@ -40,21 +40,24 @@ export default function EditorView() {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-    } catch (e) { navigate('/'); }
-  };
-
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchAll = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        setProject(res.data.project);
+        setDocuments(res.data.documents);
+        if (res.data.documents.length > 0) {
+          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+          setActiveDoc(main);
+        }
+      } catch (e) { navigate('/'); }
+    };
     fetchAll();
+
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
   }, [id, token, navigate]);
@@ -128,7 +131,7 @@ export default function EditorView() {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
-        const offset = leftWidth + 4; // Sidebar + Resizer
+        const offset = leftWidth + 4;
         const availableWidth = window.innerWidth - offset;
         const percentage = ((e.clientX - offset) / availableWidth) * 100;
         setEditorWidth(Math.max(10, Math.min(90, percentage)));
