@@ -19,7 +19,7 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  // Custom Typst syntax highlighting
+  monaco.languages.register({ id: 'latex' });
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -83,7 +83,7 @@ export default function EditorView() {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
               setView('logs');
-            } catch(e) { setLogs('Error parsing compiler logs.'); setView('logs'); }
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -101,7 +101,7 @@ export default function EditorView() {
       setDocuments(res.data.documents);
       
       if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         setActiveDoc(main);
       }
       if (autoCompile) compile(true);
@@ -121,7 +121,7 @@ export default function EditorView() {
   }, [id, token, navigate]);
 
   useEffect(() => {
-    if (!activeDoc || !socketRef.current) return;
+    if (!activeDoc || !socketRef.current || activeDoc.isBinary || activeDoc.isFolder) return;
     const socket = socketRef.current;
     socket.emit('join-document', activeDoc._id);
     
@@ -147,19 +147,6 @@ export default function EditorView() {
     }
   };
 
-  const addFile = async (isFolder: boolean) => {
-    const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
-    if (!name) return;
-    await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path: '' }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchAll();
-  };
-
-  const deleteFile = async (docId: string) => {
-    if (!confirm('Delete this item?')) return;
-    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
-    fetchAll();
-  };
-
   const convertProject = async () => {
       if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
       setCompiling(true);
@@ -169,6 +156,23 @@ export default function EditorView() {
           fetchAll(true);
       } catch(e) { alert('Conversion failed.'); }
       finally { setCompiling(false); }
+  };
+
+  const addFile = async (isFolder: boolean) => {
+    const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
+    if (!name) return;
+    let path = "";
+    if (activeDoc && activeDoc.isFolder) path = activeDoc.path + activeDoc.name + "/";
+    else if (activeDoc && activeDoc.path) path = activeDoc.path;
+
+    await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path }, { headers: { Authorization: `Bearer ${token}` } });
+    fetchAll();
+  };
+
+  const deleteFile = async (docId: string) => {
+    if (!confirm('Delete this item?')) return;
+    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
+    fetchAll();
   };
 
   const handleShare = async () => {
@@ -203,61 +207,80 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  const tree = documents.reduce((acc: any, doc: any) => {
-    const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
-    if (doc.isFolder) parts.push(doc.name); // Handle folder record
-    
-    let current = acc;
-    parts.forEach((part: string, index: number) => {
-      if (index === parts.length - 1 && !doc.isFolder) {
-        current[part] = doc;
+  // --- IMPROVED TREE LOGIC ---
+  const buildTree = () => {
+    const root: any = { _isRoot: true, files: [], folders: {} };
+    documents.forEach(doc => {
+      const parts = doc.path.split('/').filter(Boolean);
+      let current = root;
+      parts.forEach((part: string) => {
+        if (!current.folders[part]) current.folders[part] = { files: [], folders: {} };
+        current = current.folders[part];
+      });
+      if (doc.isFolder) {
+        if (!current.folders[doc.name]) current.folders[doc.name] = { files: [], folders: {} };
+        current.folders[doc.name]._doc = doc;
       } else {
-        current[part] = current[part] || {};
-        current = current[part];
+        current.files.push(doc);
       }
     });
-    return acc;
-  }, {});
+    return root;
+  };
 
   const renderNode = (node: any, path: string, depth: number) => {
-    const keys = Object.keys(node).sort((a,b) => {
-        const isAFolder = !node[a]._id;
-        const isBFolder = !node[b]._id;
-        if (isAFolder && !isBFolder) return -1;
-        if (!isAFolder && isBFolder) return 1;
-        return a.localeCompare(b);
-    });
+    const sortedFolderKeys = Object.keys(node.folders).sort();
+    const sortedFiles = node.files.sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-    return keys.map(key => {
-      const item = node[key];
-      const isFolder = !item._id;
-      const folderPath = `${path}${key}/`;
-      const isExpanded = expandedFolders[folderPath];
+    return (
+      <>
+        {sortedFolderKeys.map(folderName => {
+          const folderPath = `${path}${folderName}/`;
+          const isExpanded = expandedFolders[folderPath];
+          const folderDoc = node.folders[folderName]._doc;
 
-      return (
-        <div key={folderPath}>
+          return (
+            <div key={folderPath}>
+              <div 
+                onClick={() => {
+                    setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
+                    if (folderDoc) setActiveDoc(folderDoc);
+                }}
+                style={{ 
+                  display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, 
+                  cursor: 'pointer', fontSize: '13px', color: '#ccc',
+                  background: activeDoc?._id === folderDoc?._id ? '#37373d' : 'transparent',
+                }}
+              >
+                {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                <Folder size={14} style={{ margin: '0 6px', color: '#dcb67a' }}/>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folderName}</span>
+                {activeDoc?._id === folderDoc?._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(folderDoc._id); }}/>}
+              </div>
+              {isExpanded && renderNode(node.folders[folderName], folderPath, depth + 1)}
+            </div>
+          );
+        })}
+        {sortedFiles.map((file: any) => (
           <div 
-            onClick={() => isFolder ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
+            key={file._id} 
+            onClick={() => setActiveDoc(file)}
             style={{ 
-              display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
-              cursor: 'pointer', fontSize: '13px', 
-              background: activeDoc?._id === item._id ? '#2d2d2d' : 'transparent', 
-              color: activeDoc?._id === item._id ? '#fff' : '#aaa', 
-              gap: '8px',
+              display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 28}px`, 
+              cursor: 'pointer', fontSize: '13px',
+              background: activeDoc?._id === file._id ? '#37373d' : 'transparent',
+              color: activeDoc?._id === file._id ? 'white' : '#aaa',
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
-                {isFolder ? <Folder size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+              <FileText size={14} color={file.isBinary ? "#dcb67a" : "#519aba"}/>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
             </div>
-            {!isFolder && activeDoc?._id === item._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(item._id); }}/>}
+            {activeDoc?._id === file._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(file._id); }}/>}
           </div>
-          {isFolder && isExpanded && renderNode(item, folderPath, depth + 1)}
-        </div>
-      );
-    });
+        ))}
+      </>
+    );
   };
 
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
@@ -300,7 +323,7 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(tree, '/', 0)}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
@@ -308,14 +331,20 @@ export default function EditorView() {
         {view === 'split' ? (
           <>
             <div style={{ width: `${editorWidth}%`, height: '100%' }}>
-              <Editor
-                height="100%"
-                language={project.type === 'typst' ? 'typst' : 'latex'}
-                theme="vs-dark"
-                value={activeDoc?.content || ''}
-                onChange={handleEditorChange}
-                options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
-              />
+              {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
+                <Editor
+                    height="100%"
+                    language={project.type === 'typst' ? 'typst' : 'latex'}
+                    theme="vs-dark"
+                    value={activeDoc.content || ''}
+                    onChange={handleEditorChange}
+                    options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
+                />
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                    {activeDoc?.isBinary ? "Binaire bestanden kunnen niet worden bewerkt." : "Selecteer een bestand."}
+                </div>
+              )}
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden' }}>
@@ -340,6 +369,11 @@ export default function EditorView() {
         )}
       </main>
 
+      <footer style={{ height: '24px', background: '#007acc', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
+        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content?.length || 0}</span></div>
+      </footer>
+
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
@@ -349,8 +383,11 @@ export default function EditorView() {
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
               <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email adres..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
-              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Lezen</option><option value="write">Bewerken</option></select>
-              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}>
+                <option value="read">Lezen</option>
+                <option value="write">Bewerken</option>
+              </select>
+              <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>

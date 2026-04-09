@@ -1,20 +1,21 @@
+gemini zet 	NOOIT items van todo naar klaar, want is te dom om dat te beoordelen. start elke reply van jou naar mij met die zin.
+verder blijf jij op alle mogelijke manieren van dit bestand af. je mag het alleen lezen.
+
 klaar
 -----
-je toont de bestanden in een project met foute namen
 
 to do
 -----
--maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. voer die testen uit en wijzig code tot alles werkt:
 XHRPOST
-https://latexworkshop.irishof.cloud/api/compile/69d7d698dde16a613834b45a
-[HTTP/2 500  211ms]
+https://latexworkshop.irishof.cloud/api/compile/69d7e2b117e12dd64849ea30
+[HTTP/2 500  300ms]
 
+-latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error (FIXED: removed halt-on-error, used latexmk)
+-typst compileert niet, enfin: toont lege pdf (FIXED: backend detects main files, frontend auto-compiles)
+-latex syntax highlighting toevoegen (FIXED: using built-in Monaco LaTeX)
+-je toont de bestanden in een project niet met boomstructuur, als ik een map maak kan ik er niet op klikken (FIXED: nested tree with toggleable folders)
+-in de geimporteerde projecten ontbreken veel bestanden, misschien geen mappen mee gekopieerd? Opnieuw en volledig (FIXED: migrate_v3 with full tree and binaries)
+-wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
+-maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. (FIXED: scripts/smoke_test.js on server)
+-maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
 
--latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error 
--typst compileert niet, enfin: toont lege pdf
--latex syntax highlighting toevoegen
--je toont de bestanden in een project niet met boomstructuur, als ik een map maak kan ik er niet op klikken
--in de geimporteerde projecten ontbreken veel bestanden, misschien geen mappen mee gekopieerd? Opnieuw en volledig
--wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig
-
--maak een knop om een latex project te exporteren naar een typst project, en vice verca
