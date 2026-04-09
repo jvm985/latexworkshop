@@ -19,10 +19,8 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  monaco.languages.register({ id: 'latex' });
+  // Custom Typst syntax highlighting
   monaco.languages.register({ id: 'typst' });
-  
-  // Basic Monarch for Typst
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
       root: [
@@ -58,7 +56,7 @@ export default function EditorView() {
   // UI State
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '': true });
   
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
@@ -73,7 +71,6 @@ export default function EditorView() {
       setProject(res.data.project);
       setDocuments(res.data.documents);
       
-      // Auto-select main file if not selected
       if (res.data.documents.length > 0 && !activeDoc) {
         const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
         setActiveDoc(main);
@@ -82,16 +79,11 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
+    if (!token) return navigate('/login');
     fetchAll();
     
-    // Auto-compile once on open to show PDF
-    const timer = setTimeout(() => {
-        compile(true);
-    }, 1500);
+    // Auto-compile once on open
+    const timer = setTimeout(() => compile(true), 1500);
 
     socketRef.current = io({ path: '/socket.io' });
     return () => { 
@@ -124,7 +116,8 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      setPdfUrl(url);
       setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
@@ -135,7 +128,7 @@ export default function EditorView() {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
               setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+            } catch(e) { setLogs('Error parsing compiler logs.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -170,7 +163,14 @@ export default function EditorView() {
     fetchAll();
   };
 
-  // Resizing Logic
+  const handleShare = async () => {
+    if (!shareEmail) return;
+    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
+    setShareEmail('');
+    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    setProject(res.data.project);
+  };
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
@@ -195,11 +195,7 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE RENDERING ---
-  const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => ({ ...prev, [path]: !prev[path] }));
-  };
-
+  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { files: [], folders: {} };
     documents.forEach(doc => {
@@ -230,7 +226,7 @@ export default function EditorView() {
           return (
             <div key={folderPath}>
               <div 
-                onClick={() => toggleFolder(folderPath)}
+                onClick={() => setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))}
                 style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', color: '#ccc' }}
               >
                 {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
@@ -264,11 +260,11 @@ export default function EditorView() {
     );
   };
 
-  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Laden...</div>;
+  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', zIndex: 100 }}>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -295,7 +291,7 @@ export default function EditorView() {
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Explorer</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
@@ -341,11 +337,6 @@ export default function EditorView() {
         )}
       </main>
 
-      <footer style={{ height: '24px', background: '#007acc', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
-        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content.length || 0}</span></div>
-      </footer>
-
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
@@ -359,7 +350,7 @@ export default function EditorView() {
                 <option value="read">Lezen</option>
                 <option value="write">Bewerken</option>
               </select>
-              <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>
