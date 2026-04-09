@@ -8,11 +8,13 @@ klaar
 -wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
 -maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
 -openen van een latex project duurt heel lang
+-latex syntax highlighting toevoegen 
 
 to do
 -----
 
--latex syntax highlighting toevoegen 
+-na een tijdje compileert typst niet meer
+-ik zie onderaan de logout icon niet meer
 -de wijzigingen worden niet bewaard: wanneer ik naar een ander bestand ga, moeten die worden opgeslagen
 -wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
 

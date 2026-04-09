@@ -8,7 +8,7 @@ import {
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
-  Settings, Download, Maximize2
+  Settings, Download, Maximize2, LogOut, Loader2
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -20,7 +20,6 @@ const API_URL = '/api';
 
 // --- ADVANCED MONACO SETUP ---
 loader.init().then(monaco => {
-  // LaTeX Highlighting
   monaco.languages.register({ id: 'latex' });
   monaco.languages.setMonarchTokensProvider('latex', {
     defaultToken: '',
@@ -44,7 +43,6 @@ loader.init().then(monaco => {
     }
   });
 
-  // Typst Highlighting
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -87,6 +85,9 @@ export default function EditorView() {
   const isResizingSidebarRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const compileTimeoutRef = useRef<any>(null);
+  const currentContentRef = useRef<string>('');
+  const activeDocIdRef = useRef<string | null>(null);
+  
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
@@ -102,13 +103,9 @@ export default function EditorView() {
       const url = window.URL.createObjectURL(blob);
       
       setPdfUrl(prev => {
-          // Optimization: Only update if strictly necessary to reduce flash
-          // In React-PDF-Viewer, a new URL usually triggers a reload.
-          // Revoking the OLD URL helps memory.
           if (prev) {
-              // We delay the revoke slightly to allow the new PDF to load
               const old = prev;
-              setTimeout(() => window.URL.revokeObjectURL(old), 1000);
+              setTimeout(() => window.URL.revokeObjectURL(old), 2000);
           }
           return url;
       });
@@ -121,8 +118,8 @@ export default function EditorView() {
             try {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
-              if (!isAuto) setView('logs');
-            } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
+              setView('logs');
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -139,64 +136,64 @@ export default function EditorView() {
       setProject(res.data.project);
       setDocuments(res.data.documents);
       
-      if (res.data.documents.length > 0 && !activeDoc) {
+      if (res.data.documents.length > 0 && !activeDocIdRef.current) {
         const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         setActiveDoc(main);
+        activeDocIdRef.current = main._id;
+        currentContentRef.current = main.content || '';
       }
       if (autoCompile) compile(true);
     } catch (e) { navigate('/'); }
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
-    if (!activeDoc || !socketRef.current || activeDoc.isBinary || activeDoc.isFolder) return;
+    const docId = activeDoc?._id;
+    if (!docId || !socketRef.current || activeDoc.isBinary || activeDoc.isFolder) return;
     const socket = socketRef.current;
-    socket.emit('join-document', activeDoc._id);
+    socket.emit('join-document', docId);
     
     const onUpdate = (content: string) => {
-      // Important: only update if it's really a different content from another user
-      if (activeDoc.content !== content) {
-        setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
-        // Update documents list too
-        setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content } : d));
+      if (activeDocIdRef.current === docId && currentContentRef.current !== content) {
+        currentContentRef.current = content;
+        setActiveDoc((prev: any) => (prev?._id === docId ? { ...prev, content } : prev));
+        setDocuments(prev => prev.map(d => d._id === docId ? { ...d, content } : d));
       }
     };
     socket.on('document-updated', onUpdate);
     
     return () => {
-      socket.emit('leave-document', activeDoc._id);
+      socket.emit('leave-document', docId);
       socket.off('document-updated', onUpdate);
     };
   }, [activeDoc?._id]);
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
+    currentContentRef.current = value;
     
-    // 1. Update local active state
-    setActiveDoc((prev: any) => ({ ...prev, content: value }));
-    
-    // 2. CRITICAL: Update the documents list so switching back preserves changes!
+    // Update documents list in background
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     
-    // 3. Emit to server
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
-    // 4. Auto-compile for Typst
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
-      compileTimeoutRef.current = setTimeout(() => compile(true), 1500);
+      compileTimeoutRef.current = setTimeout(() => compile(true), 2000); // Increased debounce for stability
     }
+  };
+
+  const switchDoc = (newDoc: any) => {
+      if (newDoc.isFolder) return;
+      setActiveDoc(newDoc);
+      activeDocIdRef.current = newDoc._id;
+      currentContentRef.current = newDoc.content || '';
   };
 
   const setAsMain = async (fileId: string) => {
@@ -223,18 +220,13 @@ export default function EditorView() {
   const deleteFile = async (docId: string) => {
     if (!confirm('Delete this item?')) return;
     await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (activeDoc?._id === docId) setActiveDoc(null);
     fetchAll();
   };
 
-  const convertProject = async () => {
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
+  const logout = () => {
+      localStorage.removeItem('latex_token');
+      navigate('/login');
   };
 
   useEffect(() => {
@@ -261,7 +253,6 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {}, _doc: null };
     documents.forEach(doc => {
@@ -289,7 +280,6 @@ export default function EditorView() {
 
   const renderNode = (node: any, path: string, depth: number) => {
     if (!node || !node._children) return null;
-    
     const keys = Object.keys(node._children).sort((a, b) => {
       const itemA = node._children[a];
       const itemB = node._children[b];
@@ -310,7 +300,7 @@ export default function EditorView() {
       return (
         <div key={folderPath}>
           <div 
-            onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
+            onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : switchDoc(item)} 
             style={{ 
               display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
@@ -353,18 +343,10 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Settings">
-            <Settings size={16}/>
-          </button>
-          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
-            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
-          </button>
-          <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-            <Share2 size={16}/> Share
-          </button>
-          <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}>
-            <Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}
-          </button>
+          <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
+          <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
+          <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}><Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}</button>
+          <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
           {project.type === 'latex' && (
             <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
@@ -409,14 +391,14 @@ export default function EditorView() {
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
               {pdfUrl ? (
                 <div style={{ height: '100%', width: '100%' }}>
-                    {/* Header bar for PDF viewer */}
+                    {compiling && (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Loader2 size={32} className="animate-spin" color="#0071e3"/>
+                        </div>
+                    )}
                     <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF">
-                            <Download size={16}/>
-                        </a>
-                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab">
-                            <Maximize2 size={16}/>
-                        </button>
+                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
                     </div>
                     <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
                         <Viewer fileUrl={pdfUrl} theme="dark" plugins={[defaultLayoutPluginInstance]} />
@@ -448,13 +430,9 @@ export default function EditorView() {
             </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label>
-              <select 
-                value={project.compiler} 
-                onChange={(e) => updateProject({ compiler: e.target.value })}
-                style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}
-              >
+              <select value={project.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}>
                 <option value="pdflatex">pdfLaTeX</option>
-                <option value="xelatex">XeLaTeX (Support for fontspec)</option>
+                <option value="xelatex">XeLaTeX</option>
                 <option value="lualatex">LuaLaTeX</option>
               </select>
             </div>
@@ -472,10 +450,7 @@ export default function EditorView() {
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
               <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email adres..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
-              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}>
-                <option value="read">Lezen</option>
-                <option value="write">Bewerken</option>
-              </select>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Lezen</option><option value="write">Bewerken</option></select>
               <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
