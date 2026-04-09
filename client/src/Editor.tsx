@@ -114,7 +114,8 @@ export default function EditorView() {
         return;
     }
     fetchAll(true);
-    socketRef.current = io({ path: '/socket.io' });
+    // Use ONLY websocket transport to avoid 400 polling errors with Nginx proxy
+    socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
     return () => { 
         socketRef.current?.disconnect(); 
     };
@@ -200,9 +201,9 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- IMPROVED TREE LOGIC ---
+  // --- TREE LOGIC ---
   const buildTree = () => {
-    const root: any = { _isRoot: true, files: [], folders: {} };
+    const root: any = { files: [], folders: {} };
     documents.forEach(doc => {
       const parts = doc.path.split('/').filter(Boolean);
       let current = root;
@@ -221,15 +222,16 @@ export default function EditorView() {
   };
 
   const renderNode = (node: any, path: string, depth: number) => {
-    const sortedFolderKeys = Object.keys(node.folders).sort();
-    const sortedFiles = node.files.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    const keys = Object.keys(node.folders).sort();
+    const files = node.files.sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     return (
       <>
-        {sortedFolderKeys.map(folderName => {
-          const folderPath = `${path}${folderName}/`;
+        {keys.map(key => {
+          const item = node.folders[key];
+          const folderPath = `${path}${key}/`;
           const isExpanded = expandedFolders[folderPath];
-          const folderDoc = node.folders[folderName]._doc;
+          const folderDoc = item._doc;
 
           return (
             <div key={folderPath}>
@@ -237,23 +239,28 @@ export default function EditorView() {
                 onClick={() => {
                     setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
                     if (folderDoc) setActiveDoc(folderDoc);
-                }}
+                }} 
                 style={{ 
-                  display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, 
-                  cursor: 'pointer', fontSize: '13px', color: '#ccc',
-                  background: activeDoc?._id === folderDoc?._id ? '#37373d' : 'transparent',
+                  display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
+                  cursor: 'pointer', fontSize: '13px', 
+                  background: activeDoc?._id === folderDoc?._id ? '#37373d' : 'transparent', 
+                  color: activeDoc?._id === folderDoc?._id ? '#fff' : '#aaa', 
+                  gap: '8px',
+                  justifyContent: 'space-between'
                 }}
               >
-                {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-                <Folder size={14} style={{ margin: '0 6px', color: '#dcb67a' }}/>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folderName}</span>
-                {activeDoc?._id === folderDoc?._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(folderDoc._id); }}/>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                    <Folder size={14} style={{ color: '#dcb67a' }}/>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
+                </div>
+                {folderDoc && activeDoc?._id === folderDoc?._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(folderDoc._id); }}/>}
               </div>
-              {isExpanded && renderNode(node.folders[folderName], folderPath, depth + 1)}
+              {isExpanded && renderNode(item, folderPath, depth + 1)}
             </div>
           );
         })}
-        {sortedFiles.map((file: any) => (
+        {files.map((file: any) => (
           <div 
             key={file._id} 
             onClick={() => setActiveDoc(file)}
