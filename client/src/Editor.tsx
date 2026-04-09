@@ -175,15 +175,7 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const handleShare = async () => {
-    if (!shareEmail) return;
-    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
-    setShareEmail('');
-    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    setProject(res.data.project);
-  };
-
-  useEffect(() => {
+  // Resizing Logic
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
         const offset = leftWidth + 4;
