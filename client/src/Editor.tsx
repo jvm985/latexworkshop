@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2,
   Settings, Download, Maximize2, LogOut, Loader2
 } from 'lucide-react';
 
@@ -118,8 +118,8 @@ export default function EditorView() {
             try {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
-              setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+              if (!isAuto) setView('logs');
+            } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -147,10 +147,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token]);
 
   useEffect(() => {
@@ -185,7 +190,7 @@ export default function EditorView() {
     
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
-      compileTimeoutRef.current = setTimeout(() => compile(true), 2000); // Increased debounce for stability
+      compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
     }
   };
 
