@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
-import { FileText, LogOut, Layout, Clock, FolderPlus } from 'lucide-react';
+import { 
+  FileText, LogOut, Layout, Clock, FolderPlus, 
+  Search, Grid, List, Settings, User as UserIcon, Plus
+} from 'lucide-react';
 import EditorView from './Editor';
 
 const API_URL = '/api';
@@ -16,14 +19,14 @@ function Login() {
     navigate('/');
   };
   return (
-    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#181818' }}>
-      <div style={{ background: '#252526', padding: '60px', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.4)', textAlign: 'center', border: '1px solid #333' }}>
-        <div style={{ background: '#0071e3', width: '64px', height: '64px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
-          <Layout color="white" size={32} />
+    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f' }}>
+      <div style={{ background: '#1e1e1e', padding: '60px', borderRadius: '24px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', textAlign: 'center', border: '1px solid #333', width: '400px' }}>
+        <div style={{ background: 'linear-gradient(135deg, #0071e3 0%, #003f8c 100%)', width: '80px', height: '80px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 32px', boxShadow: '0 8px 20px rgba(0,113,227,0.3)' }}>
+          <Layout color="white" size={40} />
         </div>
-        <h1 style={{ color: 'white', marginBottom: '8px', fontSize: '28px' }}>LaTeX Workshop</h1>
-        <p style={{ color: '#aaa', marginBottom: '40px' }}>Modern typesetting for everyone</p>
-        <GoogleLogin onSuccess={handleLogin} theme="filled_blue" shape="pill" />
+        <h1 style={{ color: 'white', marginBottom: '8px', fontSize: '32px', fontWeight: 800, letterSpacing: '-0.5px' }}>LaTeX Workshop</h1>
+        <p style={{ color: '#888', marginBottom: '48px', fontSize: '16px' }}>Professional typesetting reinvented.</p>
+        <GoogleLogin onSuccess={handleLogin} theme="filled_blue" shape="pill" size="large" width="280px" />
       </div>
     </div>
   );
@@ -31,6 +34,7 @@ function Login() {
 
 function Dashboard() {
   const [projects, setProjects] = useState([]);
+  const [search, setSearch] = useState('');
   const [name, setName] = useState('');
   const [type, setType] = useState('latex');
   const navigate = useNavigate();
@@ -38,15 +42,8 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    const fetchProjects = async () => {
-      const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
-      setProjects(res.data);
-    };
-    fetchProjects();
+    if (!token) return navigate('/login');
+    axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setProjects(res.data));
   }, [token, navigate]);
 
   const create = async () => {
@@ -55,53 +52,90 @@ function Dashboard() {
     navigate(`/project/${res.data._id}`);
   };
 
+  const filteredProjects = projects.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()));
+
   return (
-    <div style={{ minHeight: '100vh', background: '#1e1e1e', color: 'white', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <header style={{ background: '#252526', borderBottom: '1px solid #333', padding: '0 40px', height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Layout color="#0071e3" size={24} />
-          <span style={{ fontWeight: 700, fontSize: '18px' }}>LaTeX Workshop</span>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#121212', color: 'white', fontFamily: '"Inter", sans-serif' }}>
+      {/* Sidebar */}
+      <aside style={{ width: '260px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
+          <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={20}/></div>
+          <span style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '-0.5px' }}>Workshop</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <span style={{ fontSize: '14px', color: '#aaa' }}>{user.name}</span>
-          <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <LogOut size={16}/> Logout
-          </button>
-        </div>
-      </header>
-
-      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '48px' }}>
-          <div>
-            <h1 style={{ margin: '0 0 8px 0', fontSize: '32px' }}>Welcome back!</h1>
-            <p style={{ color: '#aaa', margin: 0 }}>You have {projects.length} active projects.</p>
+        
+        <nav style={{ flex: 1, padding: '24px 12px' }}>
+          <div style={{ background: '#282828', padding: '10px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', cursor: 'pointer' }}>
+            <Grid size={18} color="#0071e3"/> <span style={{ fontSize: '14px', fontWeight: 600 }}>Projects</span>
           </div>
-          <div style={{ display: 'flex', gap: '12px', background: '#252526', padding: '16px', borderRadius: '12px', border: '1px solid #333' }}>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project title..." style={{ background: '#1e1e1e', border: '1px solid #444', color: 'white', padding: '10px 16px', borderRadius: '8px', width: '240px' }}/>
-            <select value={type} onChange={e => setType(e.target.value)} style={{ background: '#1e1e1e', border: '1px solid #444', color: 'white', padding: '10px', borderRadius: '8px' }}>
-              <option value="latex">LaTeX</option>
-              <option value="typst">Typst</option>
-            </select>
-            <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FolderPlus size={18}/> Create
-            </button>
+          <div style={{ padding: '10px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', color: '#888', cursor: 'not-allowed' }}>
+            <Clock size={18}/> <span style={{ fontSize: '14px' }}>Recent</span>
           </div>
-        </div>
+          <div style={{ padding: '10px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', color: '#888', cursor: 'not-allowed' }}>
+            <Settings size={18}/> <span style={{ fontSize: '14px' }}>Settings</span>
+          </div>
+        </nav>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-          {projects.map((p: any) => (
-            <div key={p._id} onClick={() => navigate(`/project/${p._id}`)} style={{ background: '#252526', padding: '24px', borderRadius: '16px', cursor: 'pointer', border: '1px solid #333', transition: 'all 0.2s', position: 'relative' }} onMouseOver={e => e.currentTarget.style.borderColor = '#444'} onMouseOut={e => e.currentTarget.style.borderColor = '#333'}>
-              <div style={{ position: 'absolute', top: '24px', right: '24px', fontSize: '10px', background: '#333', color: '#aaa', padding: '4px 8px', borderRadius: '6px', fontWeight: 700, letterSpacing: '0.5px' }}>{p.type.toUpperCase()}</div>
-              <FileText size={32} color="#0071e3" style={{ marginBottom: '20px' }}/>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '18px' }}>{p.name}</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#888', fontSize: '13px' }}>
-                <Clock size={14}/>
-                <span>{new Date(p.lastModified).toLocaleDateString()}</span>
-                <span>•</span>
-                <span>{p.owner.email === user.email ? 'Owner' : 'Shared'}</span>
-              </div>
+        <div style={{ padding: '24px', borderTop: '1px solid #282828', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
+            <div style={{ fontSize: '11px', color: '#666' }}>Pro Account</div>
+          </div>
+          <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><LogOut size={16}/></button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <header style={{ padding: '24px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }}/>
+            <input 
+              value={search} 
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search projects..." 
+              style={{ background: '#181818', border: '1px solid #282828', color: 'white', padding: '10px 16px 10px 40px', borderRadius: '10px', width: '320px', outline: 'none', fontSize: '14px' }}
+            />
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ display: 'flex', background: '#181818', borderRadius: '10px', border: '1px solid #282828', padding: '4px' }}>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Project title..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 12px', width: '180px', outline: 'none', fontSize: '14px' }}/>
+              <select value={type} onChange={e => setType(e.target.value)} style={{ background: '#282828', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                <option value="latex">LaTeX</option>
+                <option value="typst">Typst</option>
+              </select>
+              <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, marginLeft: '4px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Plus size={16}/> Create
+              </button>
             </div>
-          ))}
+          </div>
+        </header>
+
+        <div style={{ padding: '0 40px 40px', flex: 1, overflowY: 'auto' }}>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '24px' }}>All Projects</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+            {filteredProjects.map((p: any) => (
+              <div 
+                key={p._id} 
+                onClick={() => navigate(`/project/${p._id}`)} 
+                style={{ background: '#181818', padding: '24px', borderRadius: '16px', border: '1px solid #282828', cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', position: 'relative' }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = '#0071e3'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = '#282828'; e.currentTarget.style.transform = 'translateY(0)'; }}
+              >
+                <div style={{ background: '#222', width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px', border: '1px solid #333' }}>
+                  <FileText size={24} color={p.type === 'typst' ? '#4ade80' : '#0071e3'}/>
+                </div>
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 600 }}>{p.name}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#666', fontSize: '12px' }}>
+                  <Clock size={14}/>
+                  <span>{new Date(p.lastModified).toLocaleDateString()}</span>
+                  <span>•</span>
+                  <span style={{ textTransform: 'uppercase', fontWeight: 700, color: '#444' }}>{p.type}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </main>
     </div>
