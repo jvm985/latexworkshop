@@ -81,8 +81,8 @@ export default function EditorView() {
             try {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
-              setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+              if (!isAuto) setView('logs');
+            } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -248,22 +248,22 @@ export default function EditorView() {
             style={{ 
               display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
-              background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', 
-              color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), 
+              background: activeDoc?._id === (doc?._id || null) ? '#37373d' : 'transparent', 
+              color: activeDoc?._id === (doc?._id || null) ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), 
               gap: '8px',
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : <FileText size={14} color={item.isBinary ? "#dcb67a" : "#519aba"}/>}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
-                {item.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
+                {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
-            {!isFolderNode && activeDoc?._id === item._id && (
+            {activeDoc?._id === doc?._id && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    {!doc.isMain && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
-                    <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>
+                    {doc && !isFolderNode && !doc.isMain && !doc.isBinary && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
+                    {doc && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>}
                 </div>
             )}
           </div>
@@ -324,7 +324,7 @@ export default function EditorView() {
               {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
                 <Editor
                     height="100%"
-                    language={project.type === 'typst' ? 'typst' : 'latex'}
+                    language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
                     theme="vs-dark"
                     value={activeDoc.content || ''}
                     onChange={handleEditorChange}
@@ -332,7 +332,7 @@ export default function EditorView() {
                 />
               ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                    {activeDoc?.isBinary ? "Binary files cannot be edited here." : "Select a file to edit."}
+                    {activeDoc?.isBinary ? "Binaire bestanden (afbeeldingen) kunnen niet worden bewerkt." : "Selecteer een bestand."}
                 </div>
               )}
             </div>
