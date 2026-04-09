@@ -64,6 +64,7 @@ export default function EditorView() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activeDoc, setActiveDoc] = useState<any>(null);
   
+  // Double-buffering for PDF
   const [activeBuffer, setActiveBuffer] = useState<'a' | 'b'>('a');
   const [pdfUrlA, setPdfUrlA] = useState<string | null>(null);
   const [pdfUrlB, setPdfUrlB] = useState<string | null>(null);
@@ -147,11 +148,11 @@ export default function EditorView() {
       if (activeBuffer === 'a') {
           setPdfUrlB(url);
           setActiveBuffer('b');
-          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 2000);
+          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 3000);
       } else {
           setPdfUrlA(url);
           setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 3000);
       }
       
       setLogs(null);
@@ -196,7 +197,7 @@ export default function EditorView() {
     return () => { 
         socketRef.current?.disconnect(); 
     };
-  }, [id, token, navigate]); // Added navigate
+  }, [id, token, navigate]);
 
   useEffect(() => {
     const docId = activeDoc?._id;
@@ -249,17 +250,29 @@ export default function EditorView() {
       }
   };
 
-  const switchDoc = (newDoc: any) => {
-      if (!newDoc) return;
-      if (newDoc.isFolder) {
-          const folderKey = newDoc.path + newDoc.name + "/";
-          setExpandedFolders(prev => ({ ...prev, [folderKey]: !prev[folderKey] }));
-          setActiveDoc(newDoc); 
+  const switchDoc = (item: any, folderPath?: string) => {
+      if (!item) return;
+      
+      // If it's a folder node from buildTree
+      if (item._isFolder) {
+          if (folderPath) {
+              setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
+          }
+          if (item._doc) setActiveDoc(item._doc); 
           return;
       }
-      setActiveDoc(newDoc);
-      activeDocIdRef.current = newDoc._id;
-      currentContentRef.current = newDoc.content || '';
+      
+      // If it's a document object
+      if (item.isFolder) {
+          const path = item.path + item.name + "/";
+          setExpandedFolders(prev => ({ ...prev, [path]: !prev[path] }));
+          setActiveDoc(item);
+          return;
+      }
+
+      setActiveDoc(item);
+      activeDocIdRef.current = item._id;
+      currentContentRef.current = item.content || '';
   };
 
   const setAsMain = async (fileId: string) => {
@@ -403,7 +416,7 @@ export default function EditorView() {
       return (
         <div key={folderPath}>
           <div 
-            onClick={() => switchDoc(item)} 
+            onClick={() => switchDoc(item, folderPath)} 
             style={{ 
               display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
@@ -431,6 +444,8 @@ export default function EditorView() {
       );
     });
   };
+
+  const currentPdfUrl = activeBuffer === 'a' ? pdfUrlA : pdfUrlB;
 
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
@@ -527,8 +542,8 @@ export default function EditorView() {
                     )}
                     {(pdfUrlA || pdfUrlB) && (
                         <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                            <a href={activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!} download={`${project?.name || 'project'}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
-                            <button onClick={() => window.open(activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
+                            <a href={currentPdfUrl || '#'} download={`${project?.name || 'project'}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                            <button onClick={() => window.open(currentPdfUrl || '', '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
                         </div>
                     )}
                     <iframe src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} />
