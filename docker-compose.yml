@@ -1,0 +1,32 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: latexworkshop-db
+    volumes:
+      - mongodb_data:/data/db
+    restart: always
+
+  backend:
+    build: ./server
+    container_name: latexworkshop-backend
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/latexworkshop
+      - PORT=3001
+      - GOOGLE_CLIENT_ID=339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com
+    depends_on:
+      - mongodb
+    restart: always
+
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: latexworkshop-frontend
+    ports:
+      - "127.0.0.1:8020:80"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  mongodb_data:
