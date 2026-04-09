@@ -9,9 +9,15 @@ import {
   AlertCircle
 } from 'lucide-react';
 
+// Modern PDF Viewer
+import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
+import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/default-layout/lib/styles/index.css';
+
 const API_URL = '/api';
 
-// Custom Typst syntax highlighting for Monaco (basic)
+// Custom Typst syntax highlighting for Monaco
 loader.init().then(monaco => {
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
@@ -45,6 +51,9 @@ export default function EditorView() {
   const socketRef = useRef<Socket | null>(null);
   const compileTimeoutRef = useRef<any>(null);
 
+  // PDF Viewer Plugin
+  const defaultLayoutPluginInstance = defaultLayoutPlugin();
+
   const token = localStorage.getItem('latex_token');
 
   useEffect(() => {
@@ -75,7 +84,9 @@ export default function EditorView() {
     socket.emit('join-document', activeDoc._id);
     
     const onUpdate = (content: string) => {
-      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+      if (activeDoc.content !== content) {
+        setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+      }
     };
     socket.on('document-updated', onUpdate);
     
@@ -137,6 +148,7 @@ export default function EditorView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
+      {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', zIndex: 100 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={20}/></button>
@@ -157,6 +169,7 @@ export default function EditorView() {
       </nav>
 
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* SIDEBAR */}
         <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Files</span>
@@ -186,6 +199,7 @@ export default function EditorView() {
 
         {view === 'split' ? (
           <>
+            {/* EDITOR */}
             <div style={{ flex: 1, position: 'relative' }}>
               <Editor
                 height="100%"
@@ -206,9 +220,18 @@ export default function EditorView() {
                 }}
               />
             </div>
-            <div style={{ flex: 1, background: '#2d2d2d', borderLeft: '1px solid #111' }}>
+            {/* MODERN PDF PREVIEW */}
+            <div style={{ flex: 1, background: '#2d2d2d', borderLeft: '1px solid #111', overflow: 'hidden' }}>
               {pdfUrl ? (
-                <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} width="100%" height="100%" style={{ border: 'none' }} title="PDF Preview" />
+                <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
+                  <div style={{ height: '100%' }}>
+                    <Viewer 
+                      fileUrl={pdfUrl} 
+                      plugins={[defaultLayoutPluginInstance]} 
+                      theme="dark"
+                    />
+                  </div>
+                </Worker>
               ) : (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#555' }}>
                   <Eye size={48} style={{ marginBottom: '16px', opacity: 0.1 }}/>
