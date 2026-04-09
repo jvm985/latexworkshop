@@ -147,15 +147,32 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, doc.content);
-    if (doc.name === 'main.tex' || doc.name === 'main.typ') mainFile = doc.name;
+    
+    // Determine main file based on project type
+    if (project.type === 'typst') {
+        if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
+    } else {
+        if (doc.name === 'main.tex') mainFile = doc.name;
+    }
   }
-  if (!mainFile) mainFile = documents[0]?.name || '';
+  
+  // Fallback if no explicit main found
+  if (!mainFile) {
+      const ext = project.type === 'typst' ? '.typ' : '.tex';
+      const fallback = documents.find(d => d.name.endsWith(ext));
+      mainFile = fallback ? fallback.name : (documents[0]?.name || '');
+  }
 
   let command = '';
   if (project.type === 'typst') {
+    // If it's a .tex file being compiled as Typst (migration case), rename it temporarily
+    if (mainFile.endsWith('.tex')) {
+        const newMain = mainFile.replace('.tex', '.typ');
+        fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
+        mainFile = newMain;
+    }
     command = `typst compile ${mainFile} main.pdf`;
   } else {
-    // Robust LaTeX compilation
     command = `${project.compiler} -interaction=nonstopmode -halt-on-error ${mainFile}`;
   }
 
@@ -164,7 +181,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
-      // Return logs as JSON for the frontend to show
       res.status(500).json({ 
         error: 'Compilation failed', 
         logs: stdout + "\n" + stderr + (error ? "\n" + error.message : "")
