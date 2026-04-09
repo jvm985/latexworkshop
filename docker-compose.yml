@@ -14,6 +14,8 @@ services:
       - PORT=3001
       - GOOGLE_CLIENT_ID=339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com
       - NODE_ENV=test
+    volumes:
+      - /opt/irishof/1-latex/fonts:/usr/share/fonts/truetype:ro
     depends_on:
       - mongodb
     restart: always
