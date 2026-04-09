@@ -64,7 +64,6 @@ export default function EditorView() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activeDoc, setActiveDoc] = useState<any>(null);
   
-  // Double-buffering for PDF viewer to eliminate flash
   const [activeBuffer, setActiveBuffer] = useState<'a' | 'b'>('a');
   const [pdfUrlA, setPdfUrlA] = useState<string | null>(null);
   const [pdfUrlB, setPdfUrlB] = useState<string | null>(null);
@@ -140,7 +139,6 @@ export default function EditorView() {
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       
-      // Toggle buffers to hide flash
       if (activeBuffer === 'a') {
           setPdfUrlB(url);
           setActiveBuffer('b');
@@ -184,10 +182,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token]);
 
   useEffect(() => {
@@ -304,6 +307,17 @@ export default function EditorView() {
     fetchAll();
   };
 
+  const convertProject = async () => {
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
+  };
+
   const logout = () => {
       localStorage.removeItem('latex_token');
       navigate('/login');
@@ -406,10 +420,6 @@ export default function EditorView() {
     });
   };
 
-  const pdfUrl = activeBuffer === 'a' ? pdfUrlA : pdfUrlB;
-
-  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
@@ -423,6 +433,9 @@ export default function EditorView() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
+          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
+            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
+          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
           {project.type === 'latex' && (
@@ -498,24 +511,14 @@ export default function EditorView() {
                             <Loader2 size={32} className="animate-spin" color="#0071e3"/>
                         </div>
                     )}
-                    {pdfUrl && (
+                    {(pdfUrlA || pdfUrlB) && (
                         <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                            <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
-                            <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
+                            <a href={activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                            <button onClick={() => window.open(activeBuffer === 'a' ? pdfUrlA! : pdfUrlB!, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
                         </div>
                     )}
-                    
-                    {/* Buffer A */}
-                    <iframe 
-                        src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} 
-                        style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} 
-                    />
-                    {/* Buffer B */}
-                    <iframe 
-                        src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} 
-                        style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} 
-                    />
-
+                    <iframe src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} />
+                    <iframe src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} />
                     {!pdfUrlA && !pdfUrlB && !compiling && (
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
                             <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
