@@ -110,13 +110,11 @@ export default function EditorView() {
       } else {
           let currentFile = 'main.tex';
           for (let i = 0; i < lines.length; i++) {
-              // Try to find the file from (filename.tex or (./filename.tex
               const fileMatch = lines[i].match(/\(([^()]*?\.tex)/);
               if (fileMatch) {
                   const cleaned = fileMatch[1].replace(/^\.\//, '');
                   if (!cleaned.includes('/usr/')) currentFile = cleaned;
               }
-              
               const lineMatch = lines[i].match(/^l\.(\d+)/);
               if (lineMatch) {
                   errors.push({
@@ -187,10 +185,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token]);
 
   useEffect(() => {
@@ -234,7 +237,6 @@ export default function EditorView() {
       
       if (foundDoc) {
           switchDoc(foundDoc);
-          // Wait longer for potential re-render/tab switch
           setTimeout(() => {
               if (editorRef.current) {
                   editorRef.current.revealLineInCenter(error.line);
