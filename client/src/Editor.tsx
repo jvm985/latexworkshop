@@ -82,15 +82,23 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
     fetchAll();
     
     // Auto-compile once on open to show PDF
-    setTimeout(() => compile(true), 1500);
+    const timer = setTimeout(() => {
+        compile(true);
+    }, 1500);
 
     socketRef.current = io({ path: '/socket.io' });
-    return () => { socketRef.current?.disconnect(); };
-  }, [id]);
+    return () => { 
+        clearTimeout(timer);
+        socketRef.current?.disconnect(); 
+    };
+  }, [id, token, navigate]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current) return;
@@ -197,7 +205,7 @@ export default function EditorView() {
     documents.forEach(doc => {
       const parts = doc.path.split('/').filter(Boolean);
       let current = root;
-      parts.forEach(part => {
+      parts.forEach((part: string) => {
         if (!current.folders[part]) current.folders[part] = { files: [], folders: {} };
         current = current.folders[part];
       });
@@ -289,8 +297,8 @@ export default function EditorView() {
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Explorer</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <FilePlus size={14} color="#888" style={{ cursor: 'pointer' }} onClick={() => addFile(false)}/>
-              <FolderPlus size={14} color="#888" style={{ cursor: 'pointer' }} onClick={() => addFile(true)}/>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '', 0)}</div>
@@ -326,7 +334,7 @@ export default function EditorView() {
           </>
         ) : (
           <div style={{ flex: 1, background: '#000', padding: '40px', overflowY: 'auto' }}>
-            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Errors</h2>
+            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Compilatie Fouten</h2>
             <pre style={{ background: '#111', padding: '24px', borderRadius: '12px', color: '#ddd', fontSize: '14px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>
             <button onClick={() => setView('split')} style={{ marginTop: '20px', background: '#333', color: 'white', border: 'none', padding: '10px 24px', borderRadius: '6px', cursor: 'pointer' }}>Sluiten</button>
           </div>
