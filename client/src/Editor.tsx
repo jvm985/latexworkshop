@@ -53,10 +53,9 @@ export default function EditorView() {
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
   
-  // UI State
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '': true });
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
   
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
@@ -79,11 +78,16 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
     fetchAll();
     
     // Auto-compile once on open
-    const timer = setTimeout(() => compile(true), 1500);
+    const timer = setTimeout(() => {
+        compile(true);
+    }, 1500);
 
     socketRef.current = io({ path: '/socket.io' });
     return () => { 
@@ -116,8 +120,7 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      setPdfUrl(url);
+      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
       setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
@@ -128,7 +131,7 @@ export default function EditorView() {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
               setView('logs');
-            } catch(e) { setLogs('Error parsing compiler logs.'); setView('logs'); }
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -195,7 +198,6 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { files: [], folders: {} };
     documents.forEach(doc => {
@@ -336,6 +338,11 @@ export default function EditorView() {
           </div>
         )}
       </main>
+
+      <footer style={{ height: '24px', background: '#007acc', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
+        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content.length || 0}</span></div>
+      </footer>
 
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
