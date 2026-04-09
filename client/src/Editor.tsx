@@ -24,18 +24,6 @@ export default function EditorView() {
 
   const token = localStorage.getItem('latex_token');
 
-  const loadData = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-    } catch (e) { navigate('/'); }
-  }, [id, token, navigate, activeDoc]);
-
   useEffect(() => {
     if (!token) {
       navigate('/login');
