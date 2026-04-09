@@ -61,7 +61,8 @@ const documentSchema = new mongoose.Schema({
   content: { type: String, default: '' },
   binaryData: { type: Buffer },
   isBinary: { type: Boolean, default: false },
-  isFolder: { type: Boolean, default: false }
+  isFolder: { type: Boolean, default: false },
+  isMain: { type: Boolean, default: false } // NEW: Mark main file
 });
 const Document = mongoose.model('Document', documentSchema);
 
@@ -110,25 +111,39 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
   const mainFile = type === 'typst' ? 'main.typ' : 'main.tex';
   const content = type === 'typst' ? '#set page(paper: "a4")\n= Hello Typst' : '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
-  await Document.create({ project: project._id, name: mainFile, content });
+  await Document.create({ project: project._id, name: mainFile, content, isMain: true });
   res.json(project);
 });
 
+// OPTIMIZED: Fetch project details WITHOUT large binary data
 app.get('/api/projects/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   if (!project) return res.status(404).send('Not found');
-  const documents = await Document.find({ project: project._id });
+  
+  // Exclude binaryData to speed up loading
+  const documents = await Document.find({ project: project._id }, { binaryData: 0 });
   res.json({ project, documents });
 });
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   const { name, path, isFolder, isBinary, content, binaryData } = req.body;
-  const doc = await Document.create({ project: req.params.id, name, path, isFolder, isBinary, content: content || '', binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null });
+  const doc = await Document.create({ 
+    project: req.params.id, name, path, isFolder, isBinary, 
+    content: content || '', 
+    binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null 
+  });
   res.json(doc);
 });
 
 app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
     await Document.deleteOne({ _id: req.params.fileId, project: req.params.id });
+    res.json({ success: true });
+});
+
+// Route to set a file as Main
+app.post('/api/projects/:id/files/:fileId/main', authenticate, async (req: any, res) => {
+    await Document.updateMany({ project: req.params.id }, { isMain: false });
+    await Document.updateOne({ _id: req.params.fileId, project: req.params.id }, { isMain: true });
     res.json({ success: true });
 });
 
@@ -152,33 +167,6 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
     res.json({ success: true });
 });
 
-// --- CONVERSION ENGINE (Pandoc) ---
-app.post('/api/convert/:id', authenticate, async (req: any, res) => {
-    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!project) return res.status(404).send('Not found');
-
-    const targetType = project.type === 'latex' ? 'typst' : 'latex';
-    const documents = await Document.find({ project: project._id, isFolder: false, isBinary: false });
-    
-    for (const doc of documents) {
-        if (doc.name.endsWith('.tex') || doc.name.endsWith('.typ')) {
-            const inputFormat = project.type === 'latex' ? 'latex' : 'typst';
-            const outputFormat = targetType;
-            const newName = doc.name.replace(/\.(tex|typ)$/, outputFormat === 'latex' ? '.tex' : '.typ');
-            const cmd = `echo ${JSON.stringify(doc.content)} | pandoc -f ${inputFormat} -t ${outputFormat}`;
-            exec(cmd, async (error, stdout) => {
-                if (!error) {
-                    await Document.create({ project: project._id, name: newName, content: stdout, path: doc.path });
-                }
-            });
-        }
-    }
-    project.type = targetType;
-    project.compiler = targetType === 'typst' ? 'typst' : 'pdflatex';
-    await project.save();
-    res.json(project);
-});
-
 // --- COMPILATION ENGINE ---
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
@@ -197,15 +185,13 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     if (doc.isBinary && doc.binaryData) fs.writeFileSync(fullPath, doc.binaryData);
     else fs.writeFileSync(fullPath, doc.content);
     
+    // Explicitly marked as Main
+    if (doc.isMain) mainFile = doc.name;
+
     if (project.type === 'typst') {
-        if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
         if (!fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
     } else {
-        if (doc.name === 'main.tex') mainFile = doc.name;
-        if (!fallbackFile && doc.name.endsWith('.tex')) {
-            // Check for documentclass to find the REAL main file
-            if (doc.content.includes('\\documentclass')) fallbackFile = doc.name;
-        }
+        if (!fallbackFile && doc.name.endsWith('.tex') && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
     }
   }
 
@@ -228,15 +214,12 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
   }
 
-  console.log(`Compiling project ${project.name} (${project.type}) with command: ${command}`);
-
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
-      console.error(`Compilation failed for ${project.name}: ${stdout} ${stderr}`);
-      res.status(500).json({ error: 'Compilatie mislukt. Zie logs voor details.', logs: stdout + "\n" + stderr });
+      res.status(500).json({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });

@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, RefreshCw
+  ChevronDown, ChevronRight, Trash2, CheckCircle2
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -17,7 +17,7 @@ import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
 
-// --- CUSTOM MONACO SETUP ---
+// --- MONACO SETUP ---
 loader.init().then(monaco => {
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
@@ -71,21 +71,24 @@ export default function EditorView() {
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      setPdfUrl(url);
+      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
       setLogs(null);
     } catch (err: any) {
-      if (err.response?.data instanceof Blob) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const result = JSON.parse(reader.result as string);
-            setLogs(result.logs || 'Compilation failed.');
-            // Only jump to logs if NOT auto-compiling, or if it's a new error
-            if (!isAuto) setView('logs');
-          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
-        };
-        reader.readAsText(err.response.data);
+      if (!isAuto) {
+        if (err.response?.data instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const result = JSON.parse(reader.result as string);
+              setLogs(result.logs || 'Compilation failed.');
+              setView('logs');
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+          };
+          reader.readAsText(err.response.data);
+        } else {
+          setLogs('Server error during compilation.');
+          setView('logs');
+        }
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -97,7 +100,7 @@ export default function EditorView() {
       setDocuments(res.data.documents);
       
       if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
+        const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         setActiveDoc(main);
       }
       if (autoCompile) compile(true);
@@ -105,15 +108,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token, navigate]);
 
   useEffect(() => {
@@ -122,7 +120,9 @@ export default function EditorView() {
     socket.emit('join-document', activeDoc._id);
     
     const onUpdate = (content: string) => {
-      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+      if (activeDoc.content !== content) {
+        setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+      }
     };
     socket.on('document-updated', onUpdate);
     
@@ -143,15 +143,9 @@ export default function EditorView() {
     }
   };
 
-  const convertProject = async () => {
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
+  const setAsMain = async (fileId: string) => {
+      await axios.post(`${API_URL}/projects/${id}/files/${fileId}/main`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
   };
 
   const addFile = async (isFolder: boolean) => {
@@ -195,21 +189,25 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  const tree = documents.reduce((acc: any, doc: any) => {
-    const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
-    if (doc.isFolder) parts.push(doc.name); 
-    
-    let current = acc;
-    parts.forEach((part: string, index: number) => {
-      if (index === parts.length - 1 && !doc.isFolder) {
-        current[part] = doc;
+  // --- TREE LOGIC ---
+  const buildTree = () => {
+    const root: any = { _children: {} };
+    documents.forEach(doc => {
+      const parts = doc.path.split('/').filter(Boolean);
+      let current = root;
+      parts.forEach((part: string) => {
+        if (!current._children[part]) current._children[part] = { _isFolderNode: true, _children: {} };
+        current = current._children[part];
+      });
+      if (doc.isFolder) {
+        if (!current._children[doc.name]) current._children[doc.name] = { _isFolderNode: true, _children: {} };
+        current._children[doc.name]._doc = doc;
       } else {
-        current[part] = current[part] || { _isFolderNode: true, _children: {} };
-        current = current[part]._children;
+        current._children[doc.name] = doc;
       }
     });
-    return acc;
-  }, {});
+    return root;
+  };
 
   const renderNode = (node: any, path: string, depth: number) => {
     const keys = Object.keys(node).sort((a,b) => {
@@ -225,26 +223,33 @@ export default function EditorView() {
       const isFolderNode = !!item._isFolderNode;
       const folderPath = `${path}${key}/`;
       const isExpanded = expandedFolders[folderPath];
+      const doc = isFolderNode ? item._doc : item;
 
       return (
         <div key={folderPath}>
           <div 
             onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
             style={{ 
-              display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
+              display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
-              background: activeDoc?._id === item._id ? '#37373d' : 'transparent', 
-              color: activeDoc?._id === item._id ? '#fff' : '#aaa', 
+              background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', 
+              color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), 
               gap: '8px',
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : <FileText size={14} color={item.isBinary ? "#dcb67a" : "#519aba"}/>}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
+                {item.isMain && <CheckCircle2 size={12} color="#4ade80" title="Main File"/>}
             </div>
-            {!isFolderNode && activeDoc?._id === item._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(item._id); }}/>}
+            {activeDoc?._id === doc?._id && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    {!isFolderNode && !doc.isMain && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }} title="Set as Main"/>}
+                    <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>
+                </div>
+            )}
           </div>
           {isFolderNode && isExpanded && renderNode(item._children, folderPath, depth + 1)}
         </div>
@@ -266,9 +271,6 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
-            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
-          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
             <Share2 size={16}/> Share
           </button>
@@ -286,13 +288,13 @@ export default function EditorView() {
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Explorer</span>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(tree, '/', 0)}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree()._children, '/', 0)}</div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
@@ -311,7 +313,7 @@ export default function EditorView() {
                 />
               ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                    {activeDoc?.isBinary ? "Binaire bestanden kunnen niet worden bewerkt." : "Selecteer een bestand."}
+                    {activeDoc?.isBinary ? "Binary files cannot be edited here." : "Select a file to edit."}
                 </div>
               )}
             </div>

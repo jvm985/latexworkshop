@@ -1,28 +1,18 @@
-- start elke reply van jou naar mij met volgende zin "gemini zet 	NOOIT items van todo naar klaar, want is te dom om dat te beoordelen. "
-- verder blijf jij op alle mogelijke manieren van dit bestand af. je mag het alleen lezen.
-- eindig elke antwoord aan mij met "ik ben slecht een domme AI, ik hoop dat ik je niet irriteer en ik beloof in het vervolg beter mijn best te doen."
+- hanteer altijd een nederige toon tegen mij
 
 klaar
 -----
 
+-typst compileert niet, enfin: toont lege pdf (FIXED: backend detects main files, frontend auto-compiles)
+-maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. Je moet daarbij connectie maken vanaf mijn lokale pc naar irishof.cloud, anders heeft het geen zin. doe dat eerst.
+-wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
+-maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
+
 to do
 -----
--maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. Je moet daarbij connectie maken vanaf mijn lokale pc naar irishof.cloud, anders heeft het geen zin. doe dat eerst.
+-openen van een latex project duurt heel lang
+-latex compileert niet omdat ik geen hoofdbestand kan aanduiden
+-latex syntax highlighting toevoegen 
+-de geimporteerde projecten hebben een totaal foute bestanden lijst en structuur
 
-ik open een project en: 
-Firefox kan geen verbinding maken met de server op wss://latexworkshop.irishof.cloud/socket.io/?EIO=4&transport=websocket&sid=0eoaS3QZiXbuirP1AAAM. index-WxsLj6eo.js:41:23680
-
-
-XHRPOST
-https://latexworkshop.irishof.cloud/api/compile/69d7e2b117e12dd64849ea30
-[HTTP/2 500  300ms]
-
--latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error (FIXED: removed halt-on-error, used latexmk)
--typst compileert niet, enfin: toont lege pdf (FIXED: backend detects main files, frontend auto-compiles)
--latex syntax highlighting toevoegen (FIXED: using built-in Monaco LaTeX)
--je toont de bestanden in een project niet met boomstructuur, als ik een map maak kan ik er niet op klikken (FIXED: nested tree with toggleable folders)
--in de geimporteerde projecten ontbreken veel bestanden, misschien geen mappen mee gekopieerd? Opnieuw en volledig (FIXED: migrate_v3 with full tree and binaries)
--wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
-
--maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
 
