@@ -54,7 +54,7 @@ const Project = mongoose.model('Project', projectSchema);
 const documentSchema = new mongoose.Schema({
   project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
   name: { type: String, required: true },
-  path: { type: String, default: '' }, // e.g., 'sections/' or '' for root
+  path: { type: String, default: '' },
   content: { type: String, default: '' },
   isFolder: { type: Boolean, default: false }
 });
@@ -105,7 +105,7 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/projects/:id', authenticate, async (req: any, res) => {
-  const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
+  const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   if (!project) return res.status(404).send('Not found');
   const documents = await Document.find({ project: project._id });
   res.json({ project, documents });
@@ -131,14 +131,38 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
+  // Schrijf bestanden en vind het 'main' bestand
+  let mainFileToCompile = '';
   for (const doc of documents) {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, doc.content);
+    
+    // Bepaal welk bestand we gaan compileren
+    if (project.type === 'typst' && (doc.name === 'main.typ' || doc.name === 'main.tex')) {
+        // Forceer .typ extensie voor Typst compiler indien nodig
+        const typstPath = fullPath.endsWith('.typ') ? fullPath : fullPath.replace('.tex', '.typ');
+        if (fullPath !== typstPath) fs.renameSync(fullPath, typstPath);
+        mainFileToCompile = path.basename(typstPath);
+    } else if (project.type === 'latex' && doc.name === 'main.tex') {
+        mainFileToCompile = 'main.tex';
+    }
   }
 
-  const mainFile = project.type === 'typst' ? 'main.typ' : 'main.tex';
-  let command = project.type === 'typst' ? `typst compile ${mainFile} main.pdf` : `latexmk -${project.compiler} -interaction=nonstopmode -f ${mainFile}`;
+  // Fallback: als geen 'main' gevonden, pak de eerste met de juiste extensie
+  if (!mainFileToCompile) {
+    const ext = project.type === 'typst' ? '.typ' : '.tex';
+    const firstMatch = documents.find(d => d.name.endsWith(ext));
+    if (firstMatch) mainFileToCompile = firstMatch.name;
+  }
+
+  if (!mainFileToCompile) {
+    return res.status(400).json({ error: 'Geen hoofd-bestand gevonden om te compileren.' });
+  }
+
+  let command = project.type === 'typst' 
+    ? `typst compile ${mainFileToCompile} main.pdf` 
+    : `latexmk -${project.compiler} -interaction=nonstopmode -f ${mainFileToCompile}`;
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
