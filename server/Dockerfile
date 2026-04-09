@@ -1,6 +1,6 @@
 FROM node:20-bullseye
 
-# Install Full TeXLive and compilers
+# Install Full TeXLive and compilers + Pandoc for conversion
 RUN apt-get update && apt-get install -y \
     texlive-latex-base \
     texlive-latex-extra \
@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     biber \
     curl \
     xz-utils \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Typst
@@ -23,6 +24,7 @@ RUN curl -L https://github.com/typst/typst/releases/latest/download/typst-x86_64
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
+
 COPY . .
 RUN npm run build
 

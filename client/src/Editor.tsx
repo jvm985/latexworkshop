@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2
+  ChevronDown, ChevronRight, Trash2, RefreshCw
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -19,7 +19,7 @@ const API_URL = '/api';
 
 // --- CUSTOM MONACO SETUP ---
 loader.init().then(monaco => {
-  // Custom Typst syntax highlighting
+  monaco.languages.register({ id: 'latex' });
   monaco.languages.register({ id: 'typst' });
   monaco.languages.setMonarchTokensProvider('typst', {
     tokenizer: {
@@ -64,7 +64,7 @@ export default function EditorView() {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async () => {
+  const fetchAll = async (autoCompile = false) => {
     try {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(res.data.project);
@@ -74,26 +74,15 @@ export default function EditorView() {
         const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
         setActiveDoc(main);
       }
+      if (autoCompile) compile(true);
     } catch (e) { navigate('/'); }
   };
 
   useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    fetchAll();
-    
-    // Auto-compile once on open
-    const timer = setTimeout(() => {
-        compile(true);
-    }, 1500);
-
+    if (!token) return navigate('/login');
+    fetchAll(true);
     socketRef.current = io({ path: '/socket.io' });
-    return () => { 
-        clearTimeout(timer);
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token, navigate]);
 
   useEffect(() => {
@@ -149,8 +138,19 @@ export default function EditorView() {
     
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
-      compileTimeoutRef.current = setTimeout(() => compile(true), 1000);
+      compileTimeoutRef.current = setTimeout(() => compile(true), 1500);
     }
+  };
+
+  const convertProject = async () => {
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
   };
 
   const addFile = async (isFolder: boolean) => {
@@ -166,14 +166,7 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const handleShare = async () => {
-    if (!shareEmail) return;
-    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
-    setShareEmail('');
-    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    setProject(res.data.project);
-  };
-
+  // Resizing Logic
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
@@ -198,6 +191,7 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
+  // --- TREE LOGIC ---
   const buildTree = () => {
     const root: any = { files: [], folders: {} };
     documents.forEach(doc => {
@@ -276,12 +270,16 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
+            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
+          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
             <Share2 size={16}/> Share
           </button>
           <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}>
             <Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}
           </button>
+          
           {project.type === 'latex' && (
             <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
@@ -357,7 +355,7 @@ export default function EditorView() {
                 <option value="read">Lezen</option>
                 <option value="write">Bewerken</option>
               </select>
-              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+              <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>

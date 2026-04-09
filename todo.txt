@@ -4,6 +4,11 @@ je toont de bestanden in een project met foute namen
 
 to do
 -----
+-maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. voer die testen uit en wijzig code tot alles werkt:
+XHRPOST
+https://latexworkshop.irishof.cloud/api/compile/69d7d698dde16a613834b45a
+[HTTP/2 500  211ms]
+
 
 -latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error 
 -typst compileert niet, enfin: toont lege pdf
@@ -11,4 +16,5 @@ to do
 -je toont de bestanden in een project niet met boomstructuur, als ik een map maak kan ik er niet op klikken
 -in de geimporteerde projecten ontbreken veel bestanden, misschien geen mappen mee gekopieerd? Opnieuw en volledig
 -wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig
--maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. voer die testen uit en wijzig code tot alles werkt.
+
+-maak een knop om een latex project te exporteren naar een typst project, en vice verca

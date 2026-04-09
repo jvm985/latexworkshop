@@ -67,12 +67,9 @@ const authenticate = async (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).send('Unauthorized');
   
-  // MOCK AUTH for Smoke Tests
   if (process.env.NODE_ENV === 'test' && token === 'mock-token') {
       req.user = await User.findOne({ email: 'test@gemini.com' });
-      if (!req.user) {
-          req.user = await User.create({ email: 'test@gemini.com', name: 'Gemini Tester' });
-      }
+      if (!req.user) req.user = await User.create({ email: 'test@gemini.com', name: 'Gemini Tester' });
       return next();
   }
 
@@ -81,9 +78,7 @@ const authenticate = async (req: any, res: any, next: any) => {
     const payload = ticket.getPayload();
     if (!payload || !payload.email) throw new Error('Invalid token');
     req.user = await User.findOne({ email: payload.email });
-    if (!req.user) {
-        req.user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
-    }
+    if (!req.user) req.user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
     next();
   } catch (err) { res.status(401).send('Invalid token'); }
 };
@@ -102,9 +97,7 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 app.get('/api/projects', authenticate, async (req: any, res) => {
-  const projects = await Project.find({
-    $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }]
-  }).populate('owner', 'name email').sort({ lastModified: -1 });
+  const projects = await Project.find({ $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(projects);
 });
 
@@ -127,11 +120,7 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   const { name, path, isFolder, isBinary, content, binaryData } = req.body;
-  const doc = await Document.create({ 
-    project: req.params.id, name, path, isFolder, isBinary, 
-    content: content || '', 
-    binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null 
-  });
+  const doc = await Document.create({ project: req.params.id, name, path, isFolder, isBinary, content: content || '', binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null });
   res.json(doc);
 });
 
@@ -160,6 +149,35 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
     res.json({ success: true });
 });
 
+// --- CONVERSION ENGINE (Pandoc) ---
+app.post('/api/convert/:id', authenticate, async (req: any, res) => {
+    const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
+    if (!project) return res.status(404).send('Not found');
+
+    const targetType = project.type === 'latex' ? 'typst' : 'latex';
+    const documents = await Document.find({ project: project._id, isFolder: false, isBinary: false });
+    
+    for (const doc of documents) {
+        if (doc.name.endsWith('.tex') || doc.name.endsWith('.typ')) {
+            const inputFormat = project.type === 'latex' ? 'latex' : 'typst';
+            const outputFormat = targetType;
+            const newName = doc.name.replace(/\.(tex|typ)$/, outputFormat === 'latex' ? '.tex' : '.typ');
+            
+            // Note: Pandoc typst support might be experimental or require specific versions
+            const cmd = `echo ${JSON.stringify(doc.content)} | pandoc -f ${inputFormat} -t ${outputFormat}`;
+            exec(cmd, async (error, stdout) => {
+                if (!error) {
+                    await Document.create({ project: project._id, name: newName, content: stdout, path: doc.path });
+                }
+            });
+        }
+    }
+    project.type = targetType;
+    project.compiler = targetType === 'typst' ? 'typst' : 'pdflatex';
+    await project.save();
+    res.json(project);
+});
+
 // --- COMPILATION ENGINE ---
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
@@ -173,20 +191,11 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   for (const doc of documents) {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    if (doc.isBinary && doc.binaryData) fs.writeFileSync(fullPath, doc.binaryData);
+    else fs.writeFileSync(fullPath, doc.content);
     
-    if (doc.isBinary && doc.binaryData) {
-        fs.writeFileSync(fullPath, doc.binaryData);
-    } else {
-        fs.writeFileSync(fullPath, doc.content);
-    }
-    
-    if (project.type === 'typst') {
-        if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
-    } else {
-        if (doc.name === 'main.tex') mainFile = doc.name;
-    }
+    if (doc.name === 'main.tex' || doc.name === 'main.typ') mainFile = doc.name;
   }
-  
   if (!mainFile) {
       const ext = project.type === 'typst' ? '.typ' : '.tex';
       const fallback = documents.find(d => d.name.endsWith(ext));
@@ -197,7 +206,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   if (project.type === 'typst') {
     if (mainFile.endsWith('.tex')) {
         const newMain = mainFile.replace('.tex', '.typ');
-        fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
+        if (fs.existsSync(path.join(workDir, mainFile))) fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
         mainFile = newMain;
     }
     command = `typst compile ${mainFile} main.pdf`;
@@ -206,15 +215,15 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
   }
 
+  console.log(`Compiling project ${project.name} with command: ${command}`);
+
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => fs.rmSync(workDir, { recursive: true, force: true }));
     } else {
-      res.status(500).json({ 
-        error: 'Compilation failed', 
-        logs: stdout + "\n" + stderr + (error ? "\n" + error.message : "")
-      });
+      console.error(`Compilation failed for ${project.name}: ${stdout} ${stderr}`);
+      res.status(500).json({ error: 'Compilation failed', logs: stdout + "\n" + stderr });
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });
