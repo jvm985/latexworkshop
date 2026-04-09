@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
-import { FileText, LogOut, Plus, Layout, Grid, List, Clock, FolderPlus } from 'lucide-react';
+import { FileText, LogOut, Layout, Clock, FolderPlus } from 'lucide-react';
 import EditorView from './Editor';
 
 const API_URL = '/api';
@@ -38,8 +38,15 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   useEffect(() => {
-    if (!token) return navigate('/login');
-    axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }).then(res => setProjects(res.data));
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchProjects = async () => {
+      const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+      setProjects(res.data);
+    };
+    fetchProjects();
   }, [token, navigate]);
 
   const create = async () => {
@@ -50,7 +57,6 @@ function Dashboard() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#1e1e1e', color: 'white', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      {/* Top Header */}
       <header style={{ background: '#252526', borderBottom: '1px solid #333', padding: '0 40px', height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Layout color="#0071e3" size={24} />
