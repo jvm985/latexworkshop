@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
