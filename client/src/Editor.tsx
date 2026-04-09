@@ -6,37 +6,15 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
-  AlertCircle
+  AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon
 } from 'lucide-react';
 
-// Modern PDF Viewer
 import { Viewer, Worker } from '@react-pdf-viewer/core';
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
-
-// Custom Typst syntax highlighting for Monaco
-loader.init().then(monaco => {
-  monaco.languages.register({ id: 'typst' });
-  monaco.languages.setMonarchTokensProvider('typst', {
-    tokenizer: {
-      root: [
-        [/^#.*/, 'comment'],
-        [/^= .*/, 'keyword'],
-        [/\[/, { token: 'string', bracket: '@open', next: '@string' } as any],
-        [/\$.*\$/, 'variable'],
-        [/[{}()\[\]]/, '@brackets'],
-        [/[a-zA-Z_]\w*/, 'identifier'],
-      ],
-      string: [
-        [/[^\]]+/, 'string'],
-        [/\]/, { token: 'string', bracket: '@close', next: '@pop' } as any],
-      ],
-    }
-  });
-});
 
 export default function EditorView() {
   const { id } = useParams();
@@ -48,78 +26,76 @@ export default function EditorView() {
   const [compiling, setCompiling] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
   const [view, setView] = useState<'split' | 'logs'>('split');
+  const [showShare, setShowShare] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [sharePerm, setSharePerm] = useState('read');
+  
+  // Resizable panel state
+  const [leftWidth, setLeftWidth] = useState(220);
+  const [editorWidth, setEditorWidth] = useState(50); // percentage
+  const isResizingRef = useRef(false);
+  const isResizingSidebarRef = useRef(false);
+
   const socketRef = useRef<Socket | null>(null);
   const compileTimeoutRef = useRef<any>(null);
-
-  // PDF Viewer Plugin
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
-
   const token = localStorage.getItem('latex_token');
 
-  useEffect(() => {
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-    const fetchAll = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-        setProject(res.data.project);
-        setDocuments(res.data.documents);
-        if (res.data.documents.length > 0) {
-          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-          setActiveDoc(main);
-        }
-      } catch (e) { navigate('/'); }
-    };
-    fetchAll();
+  const fetchAll = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      setProject(res.data.project);
+      setDocuments(res.data.documents);
+      if (res.data.documents.length > 0 && !activeDoc) {
+        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+        setActiveDoc(main);
+      }
+    } catch (e) { navigate('/'); }
+  };
 
+  useEffect(() => {
+    if (!token) return navigate('/login');
+    fetchAll();
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
-  }, [id, token, navigate]);
+  }, [id]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current) return;
-    const socket = socketRef.current;
-    socket.emit('join-document', activeDoc._id);
-    
+    socketRef.current.emit('join-document', activeDoc._id);
     const onUpdate = (content: string) => {
       if (activeDoc.content !== content) {
         setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
       }
     };
-    socket.on('document-updated', onUpdate);
-    
+    socket.current.on('document-updated', onUpdate);
     return () => {
-      socket.emit('leave-document', activeDoc._id);
-      socket.off('document-updated', onUpdate);
+      socket.current.emit('leave-document', activeDoc._id);
+      socket.current.off('document-updated', onUpdate);
     };
   }, [activeDoc?._id]);
 
   const compile = async (isAuto = false) => {
     if (compiling && isAuto) return;
     if (!isAuto) setCompiling(true);
-    setLogs(null);
     try {
       const res = await axios.post(`${API_URL}/compile/${id}`, {}, { 
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      setPdfUrl(url);
+      setPdfUrl(window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })));
+      setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
-        if (err.response?.data instanceof Blob) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const result = JSON.parse(reader.result as string);
-              setLogs(result.logs);
-              setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
-          };
-          reader.readAsText(err.response.data);
-        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const result = JSON.parse(reader.result as string);
+            setLogs(result.logs);
+            setView('logs');
+          } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+        };
+        if (err.response?.data) reader.readAsText(err.response.data);
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -128,133 +104,197 @@ export default function EditorView() {
     if (value === undefined || !activeDoc) return;
     setActiveDoc({ ...activeDoc, content: value });
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
-
     if (project?.type === 'typst') {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 1000);
     }
   };
 
-  const addFile = async (isFolder: boolean) => {
-    const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
-    if (!name) return;
-    await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path: '' }, { headers: { Authorization: `Bearer ${token}` } });
-    
-    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    setDocuments(res.data.documents);
+  const handleShare = async () => {
+    if (!shareEmail) return;
+    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
+    setShareEmail('');
+    fetchAll();
   };
 
-  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Editor...</div>;
+  const startResizing = () => isResizingRef.current = true;
+  const startResizingSidebar = () => isResizingSidebarRef.current = true;
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingRef.current) {
+        const offset = leftWidth;
+        const availableWidth = window.innerWidth - offset;
+        const percentage = ((e.clientX - offset) / availableWidth) * 100;
+        setEditorWidth(Math.max(10, Math.min(90, percentage)));
+      }
+      if (isResizingSidebarRef.current) {
+        setLeftWidth(Math.max(150, Math.min(500, e.clientX)));
+      }
+    };
+    const handleMouseUp = () => {
+      isResizingRef.current = false;
+      isResizingSidebarRef.current = false;
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [leftWidth]);
+
+  // Tree Helper
+  const renderTree = () => {
+    // Basic flat list for now, but with folder grouping logic
+    const rootFiles = documents.filter(d => !d.path);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {documents.map(doc => (
+          <div 
+            key={doc._id} 
+            onClick={() => !doc.isFolder && setActiveDoc(doc)}
+            style={{ 
+              display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer', fontSize: '13px',
+              background: activeDoc?._id === doc._id ? '#2d2d2d' : 'transparent',
+              color: activeDoc?._id === doc._id ? '#fff' : '#aaa',
+              gap: '8px'
+            }}
+          >
+            {doc.isFolder ? <Folder size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
       {/* NAVBAR */}
-      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', zIndex: 100 }}>
+      <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={20}/></button>
+          <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={16} color={project.type === 'typst' ? '#4ade80' : '#0071e3'}/>
-            <span style={{ fontSize: '13px', fontWeight: 600 }}>{project.name}</span>
+            <span style={{ fontSize: '14px', fontWeight: 700 }}>{project.name}</span>
+            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888' }}>{project.type.toUpperCase()}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Terminal size={14}/> {logs ? 'Error Logs' : 'Logs'}
+          <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+            <Share2 size={16}/> Share
           </button>
-          <button onClick={() => compile()} disabled={compiling} style={{ background: compiling ? '#444' : '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Play size={12} fill="white"/> {compiling ? 'Compiling...' : 'Recompile'}
+          <div style={{ width: '1px', height: '20px', background: '#444' }}></div>
+          <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}>
+            <Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}
+          </button>
+          <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
           </button>
         </div>
       </nav>
 
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* SIDEBAR */}
-        <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
+        <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Files</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Files</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)}><FilePlus size={14}/></button>
-              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
+              <FilePlus size={14} color="#888" style={{ cursor: 'pointer' }}/>
+              <FolderPlus size={14} color="#888" style={{ cursor: 'pointer' }}/>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {documents.map(doc => (
-              <div 
-                key={doc._id} 
-                onClick={() => !doc.isFolder && setActiveDoc(doc)}
-                style={{ 
-                  display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer', fontSize: '13px',
-                  background: activeDoc?._id === doc._id ? '#2d2d2d' : 'transparent',
-                  color: activeDoc?._id === doc._id ? '#fff' : '#aaa',
-                  borderLeft: activeDoc?._id === doc._id ? '2px solid #0071e3' : '2px solid transparent'
-                }}
-              >
-                {doc.isFolder ? <Folder size={14} style={{ marginRight: '8px', color: '#dcb67a' }}/> : <FileText size={14} style={{ marginRight: '8px', color: '#519aba' }}/>}
-                {doc.name}
-              </div>
-            ))}
-          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderTree()}</div>
         </aside>
+
+        {/* SIDEBAR RESIZER */}
+        <div onMouseDown={startResizingSidebar} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
 
         {view === 'split' ? (
           <>
             {/* EDITOR */}
-            <div style={{ flex: 1, position: 'relative' }}>
+            <div style={{ width: `${editorWidth}%`, height: '100%' }}>
               <Editor
                 height="100%"
-                width="100%"
                 language={project.type === 'typst' ? 'typst' : 'latex'}
                 theme="vs-dark"
                 value={activeDoc?.content || ''}
                 onChange={handleEditorChange}
-                options={{ 
-                  fontSize: 16, 
-                  fontFamily: '"JetBrains Mono", monospace',
-                  minimap: { enabled: false }, 
-                  wordWrap: 'on',
-                  lineNumbers: 'on',
-                  padding: { top: 16 },
-                  smoothScrolling: true,
-                  cursorBlinking: 'smooth'
-                }}
+                options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 } }}
               />
             </div>
-            {/* MODERN PDF PREVIEW */}
-            <div style={{ flex: 1, background: '#2d2d2d', borderLeft: '1px solid #111', overflow: 'hidden' }}>
+
+            {/* DIVIDER RESIZER */}
+            <div onMouseDown={startResizing} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
+
+            {/* PREVIEW */}
+            <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden' }}>
               {pdfUrl ? (
                 <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
-                  <div style={{ height: '100%' }}>
-                    <Viewer 
-                      fileUrl={pdfUrl} 
-                      plugins={[defaultLayoutPluginInstance]} 
-                      theme="dark"
-                    />
-                  </div>
+                  <Viewer fileUrl={pdfUrl} theme="dark" plugins={[defaultLayoutPluginInstance]} />
                 </Worker>
               ) : (
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#555' }}>
-                  <Eye size={48} style={{ marginBottom: '16px', opacity: 0.1 }}/>
-                  <p style={{ fontSize: '14px' }}>Compiling preview...</p>
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                  <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                  <span>No preview available</span>
                 </div>
               )}
             </div>
           </>
         ) : (
           <div style={{ flex: 1, background: '#000', padding: '40px', overflowY: 'auto' }}>
-            <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#ff5f56', marginBottom: '24px' }}><AlertCircle /> Compilation Error Logs</h2>
-              <pre style={{ background: '#111', padding: '24px', borderRadius: '12px', color: '#ddd', fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap', border: '1px solid #222' }}>{logs}</pre>
-              <button onClick={() => setView('split')} style={{ marginTop: '24px', background: '#333', border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', cursor: 'pointer' }}>Back to Editor</button>
-            </div>
+            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Errors</h2>
+            <pre style={{ background: '#111', padding: '20px', borderRadius: '8px', color: '#ddd', fontSize: '14px', whiteSpace: 'pre-wrap' }}>{logs}</pre>
+            <button onClick={() => setView('split')} style={{ marginTop: '20px', background: '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>Close</button>
           </div>
         )}
       </main>
 
-      <footer style={{ height: '24px', background: '#0071e3', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
-        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content.length || 0}</span></div>
-      </footer>
+      {/* SHARE MODAL */}
+      {showShare && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2>
+              <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+              <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}>
+                <option value="read">Read</option>
+                <option value="write">Edit</option>
+              </select>
+              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+            </div>
+
+            <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Who has access</span>
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600 }}>{project.owner.email}</div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>Owner</div>
+                  </div>
+                </div>
+                {project.sharedWith.map((s: any) => (
+                  <div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px' }}>{s.email}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
