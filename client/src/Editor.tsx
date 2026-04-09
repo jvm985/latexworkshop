@@ -176,6 +176,7 @@ export default function EditorView() {
   };
 
   // Resizing Logic
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
         const offset = leftWidth + 4;
