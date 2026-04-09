@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { 
@@ -30,9 +30,8 @@ export default function EditorView() {
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
   
-  // Resizable panel state
   const [leftWidth, setLeftWidth] = useState(220);
-  const [editorWidth, setEditorWidth] = useState(50); // percentage
+  const [editorWidth, setEditorWidth] = useState(50);
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
 
@@ -41,37 +40,39 @@ export default function EditorView() {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-    } catch (e) { navigate('/'); }
-  };
-
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchAll = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        setProject(res.data.project);
+        setDocuments(res.data.documents);
+        if (res.data.documents.length > 0) {
+          const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+          setActiveDoc(main);
+        }
+      } catch (e) { navigate('/'); }
+    };
     fetchAll();
+
     socketRef.current = io({ path: '/socket.io' });
     return () => { socketRef.current?.disconnect(); };
-  }, [id]);
+  }, [id, token, navigate]);
 
   useEffect(() => {
     if (!activeDoc || !socketRef.current) return;
-    socketRef.current.emit('join-document', activeDoc._id);
+    const socket = socketRef.current;
+    socket.emit('join-document', activeDoc._id);
     const onUpdate = (content: string) => {
-      if (activeDoc.content !== content) {
-        setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
-      }
+      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
     };
-    socket.current.on('document-updated', onUpdate);
+    socket.on('document-updated', onUpdate);
     return () => {
-      socket.current.emit('leave-document', activeDoc._id);
-      socket.current.off('document-updated', onUpdate);
+      socket.emit('leave-document', activeDoc._id);
+      socket.off('document-updated', onUpdate);
     };
   }, [activeDoc?._id]);
 
@@ -87,15 +88,17 @@ export default function EditorView() {
       setLogs(null);
     } catch (err: any) {
       if (!isAuto) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const result = JSON.parse(reader.result as string);
-            setLogs(result.logs);
-            setView('logs');
-          } catch(e) { setLogs('Compilation error.'); setView('logs'); }
-        };
-        if (err.response?.data) reader.readAsText(err.response.data);
+        if (err.response?.data instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const result = JSON.parse(reader.result as string);
+              setLogs(result.logs);
+              setView('logs');
+            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+          };
+          reader.readAsText(err.response.data);
+        }
       }
     } finally { if (!isAuto) setCompiling(false); }
   };
@@ -114,7 +117,9 @@ export default function EditorView() {
     if (!shareEmail) return;
     await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
     setShareEmail('');
-    fetchAll();
+    // Refresh project data
+    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    setProject(res.data.project);
   };
 
   const startResizing = () => isResizingRef.current = true;
@@ -144,36 +149,10 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // Tree Helper
-  const renderTree = () => {
-    // Basic flat list for now, but with folder grouping logic
-    const rootFiles = documents.filter(d => !d.path);
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {documents.map(doc => (
-          <div 
-            key={doc._id} 
-            onClick={() => !doc.isFolder && setActiveDoc(doc)}
-            style={{ 
-              display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer', fontSize: '13px',
-              background: activeDoc?._id === doc._id ? '#2d2d2d' : 'transparent',
-              color: activeDoc?._id === doc._id ? '#fff' : '#aaa',
-              gap: '8px'
-            }}
-          >
-            {doc.isFolder ? <Folder size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading...</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
-      {/* NAVBAR */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
@@ -189,7 +168,7 @@ export default function EditorView() {
           </button>
           <div style={{ width: '1px', height: '20px', background: '#444' }}></div>
           <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}>
-            <Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}
+            <Terminal size={14}/> {logs ? 'Errors' : 'Logs'}
           </button>
           <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
@@ -198,7 +177,6 @@ export default function EditorView() {
       </nav>
 
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* SIDEBAR */}
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Files</span>
@@ -207,30 +185,31 @@ export default function EditorView() {
               <FolderPlus size={14} color="#888" style={{ cursor: 'pointer' }}/>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderTree()}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {documents.map(doc => (
+              <div key={doc._id} onClick={() => !doc.isFolder && setActiveDoc(doc)} style={{ display: 'flex', alignItems: 'center', padding: '6px 16px', cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc._id ? '#2d2d2d' : 'transparent', color: activeDoc?._id === doc._id ? '#fff' : '#aaa', gap: '8px' }}>
+                {doc.isFolder ? <Folder size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</span>
+              </div>
+            ))}
+          </div>
         </aside>
 
-        {/* SIDEBAR RESIZER */}
         <div onMouseDown={startResizingSidebar} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
 
         {view === 'split' ? (
           <>
-            {/* EDITOR */}
             <div style={{ width: `${editorWidth}%`, height: '100%' }}>
               <Editor
                 height="100%"
-                language={project.type === 'typst' ? 'typst' : 'latex'}
+                language={project.type === 'typst' ? 'rust' : 'latex'}
                 theme="vs-dark"
                 value={activeDoc?.content || ''}
                 onChange={handleEditorChange}
                 options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 } }}
               />
             </div>
-
-            {/* DIVIDER RESIZER */}
             <div onMouseDown={startResizing} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
-
-            {/* PREVIEW */}
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden' }}>
               {pdfUrl ? (
                 <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
@@ -253,7 +232,6 @@ export default function EditorView() {
         )}
       </main>
 
-      {/* SHARE MODAL */}
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
@@ -261,33 +239,22 @@ export default function EditorView() {
               <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2>
               <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/>
             </div>
-            
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
               <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
-              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}>
-                <option value="read">Read</option>
-                <option value="write">Edit</option>
-              </select>
-              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Edit</option></select>
+              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
-
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Who has access</span>
               <div style={{ marginTop: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                   <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600 }}>{project.owner.email}</div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>Owner</div>
-                  </div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project.owner.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div>
                 </div>
                 {project.sharedWith.map((s: any) => (
                   <div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '14px' }}>{s.email}</div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission}</div>
-                    </div>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission}</div></div>
                   </div>
                 ))}
               </div>
