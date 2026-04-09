@@ -64,43 +64,6 @@ export default function EditorView() {
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
-  const fetchAll = async (autoCompile = false) => {
-    try {
-      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data.project);
-      setDocuments(res.data.documents);
-      
-      if (res.data.documents.length > 0 && !activeDoc) {
-        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
-        setActiveDoc(main);
-      }
-      if (autoCompile) compile(true);
-    } catch (e) { navigate('/'); }
-  };
-
-  useEffect(() => {
-    if (!token) return navigate('/login');
-    fetchAll(true);
-    socketRef.current = io({ path: '/socket.io' });
-    return () => { socketRef.current?.disconnect(); };
-  }, [id, token, navigate]);
-
-  useEffect(() => {
-    if (!activeDoc || !socketRef.current) return;
-    const socket = socketRef.current;
-    socket.emit('join-document', activeDoc._id);
-    
-    const onUpdate = (content: string) => {
-      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
-    };
-    socket.on('document-updated', onUpdate);
-    
-    return () => {
-      socket.emit('leave-document', activeDoc._id);
-      socket.off('document-updated', onUpdate);
-    };
-  }, [activeDoc?._id]);
-
   const compile = async (isAuto = false) => {
     if (compiling && isAuto) return;
     if (!isAuto) setCompiling(true);
@@ -120,7 +83,7 @@ export default function EditorView() {
               const result = JSON.parse(reader.result as string);
               setLogs(result.logs || 'Compilation failed.');
               setView('logs');
-            } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+            } catch(e) { setLogs('Error parsing compiler logs.'); setView('logs'); }
           };
           reader.readAsText(err.response.data);
         } else {
@@ -131,6 +94,48 @@ export default function EditorView() {
     } finally { if (!isAuto) setCompiling(false); }
   };
 
+  const fetchAll = async (autoCompile = false) => {
+    try {
+      const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      setProject(res.data.project);
+      setDocuments(res.data.documents);
+      
+      if (res.data.documents.length > 0 && !activeDoc) {
+        const main = res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents[0];
+        setActiveDoc(main);
+      }
+      if (autoCompile) compile(true);
+    } catch (e) { navigate('/'); }
+  };
+
+  useEffect(() => {
+    if (!token) {
+        navigate('/login');
+        return;
+    }
+    fetchAll(true);
+    socketRef.current = io({ path: '/socket.io' });
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
+  }, [id, token, navigate]);
+
+  useEffect(() => {
+    if (!activeDoc || !socketRef.current) return;
+    const socket = socketRef.current;
+    socket.emit('join-document', activeDoc._id);
+    
+    const onUpdate = (content: string) => {
+      setActiveDoc((prev: any) => (prev?._id === activeDoc._id ? { ...prev, content } : prev));
+    };
+    socket.on('document-updated', onUpdate);
+    
+    return () => {
+      socket.emit('leave-document', activeDoc._id);
+      socket.off('document-updated', onUpdate);
+    };
+  }, [activeDoc?._id]);
+
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
     setActiveDoc({ ...activeDoc, content: value });
@@ -140,17 +145,6 @@ export default function EditorView() {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 1500);
     }
-  };
-
-  const convertProject = async () => {
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
   };
 
   const addFile = async (isFolder: boolean) => {
@@ -166,7 +160,25 @@ export default function EditorView() {
     fetchAll();
   };
 
-  // Resizing Logic
+  const convertProject = async () => {
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
+  };
+
+  const handleShare = async () => {
+    if (!shareEmail) return;
+    await axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } });
+    setShareEmail('');
+    const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    setProject(res.data.project);
+  };
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingRef.current) {
@@ -191,69 +203,61 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
-  // --- TREE LOGIC ---
-  const buildTree = () => {
-    const root: any = { files: [], folders: {} };
-    documents.forEach(doc => {
-      const parts = doc.path.split('/').filter(Boolean);
-      let current = root;
-      parts.forEach((part: string) => {
-        if (!current.folders[part]) current.folders[part] = { files: [], folders: {} };
-        current = current.folders[part];
-      });
-      if (doc.isFolder) {
-        if (!current.folders[doc.name]) current.folders[doc.name] = { files: [], folders: {} };
+  const tree = documents.reduce((acc: any, doc: any) => {
+    const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
+    if (doc.isFolder) parts.push(doc.name); // Handle folder record
+    
+    let current = acc;
+    parts.forEach((part: string, index: number) => {
+      if (index === parts.length - 1 && !doc.isFolder) {
+        current[part] = doc;
       } else {
-        current.files.push(doc);
+        current[part] = current[part] || {};
+        current = current[part];
       }
     });
-    return root;
-  };
+    return acc;
+  }, {});
 
   const renderNode = (node: any, path: string, depth: number) => {
-    const sortedFolders = Object.keys(node.folders).sort();
-    const sortedFiles = node.files.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    const keys = Object.keys(node).sort((a,b) => {
+        const isAFolder = !node[a]._id;
+        const isBFolder = !node[b]._id;
+        if (isAFolder && !isBFolder) return -1;
+        if (!isAFolder && isBFolder) return 1;
+        return a.localeCompare(b);
+    });
 
-    return (
-      <>
-        {sortedFolders.map(folderName => {
-          const folderPath = `${path}${folderName}/`;
-          const isExpanded = expandedFolders[folderPath];
-          return (
-            <div key={folderPath}>
-              <div 
-                onClick={() => setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }))}
-                style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', color: '#ccc' }}
-              >
-                {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-                <Folder size={14} style={{ margin: '0 6px', color: '#dcb67a' }}/>
-                <span>{folderName}</span>
-              </div>
-              {isExpanded && renderNode(node.folders[folderName], folderPath, depth + 1)}
-            </div>
-          );
-        })}
-        {sortedFiles.map((file: any) => (
+    return keys.map(key => {
+      const item = node[key];
+      const isFolder = !item._id;
+      const folderPath = `${path}${key}/`;
+      const isExpanded = expandedFolders[folderPath];
+
+      return (
+        <div key={folderPath}>
           <div 
-            key={file._id} 
-            onClick={() => setActiveDoc(file)}
+            onClick={() => isFolder ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : setActiveDoc(item)} 
             style={{ 
-              display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 28}px`, 
-              cursor: 'pointer', fontSize: '13px',
-              background: activeDoc?._id === file._id ? '#37373d' : 'transparent',
-              color: activeDoc?._id === file._id ? 'white' : '#aaa',
+              display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
+              cursor: 'pointer', fontSize: '13px', 
+              background: activeDoc?._id === item._id ? '#2d2d2d' : 'transparent', 
+              color: activeDoc?._id === item._id ? '#fff' : '#aaa', 
+              gap: '8px',
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-              <FileText size={14} color="#519aba"/>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
+                {isFolder ? <Folder size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
             </div>
-            {activeDoc?._id === file._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(file._id); }}/>}
+            {!isFolder && activeDoc?._id === item._id && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(item._id); }}/>}
           </div>
-        ))}
-      </>
-    );
+          {isFolder && isExpanded && renderNode(item, folderPath, depth + 1)}
+        </div>
+      );
+    });
   };
 
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
@@ -279,7 +283,6 @@ export default function EditorView() {
           <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}>
             <Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}
           </button>
-          
           {project.type === 'latex' && (
             <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={12} fill="white"/> {compiling ? '...' : 'Recompile'}
@@ -297,7 +300,7 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '', 0)}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(tree, '/', 0)}</div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
@@ -337,11 +340,6 @@ export default function EditorView() {
         )}
       </main>
 
-      <footer style={{ height: '24px', background: '#007acc', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: '11px', fontWeight: 600, justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '16px' }}><span>READY</span><span>UTF-8</span></div>
-        <div style={{ display: 'flex', gap: '16px' }}><span>{project.compiler.toUpperCase()}</span><span>CHARS: {activeDoc?.content.length || 0}</span></div>
-      </footer>
-
       {showShare && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
@@ -351,11 +349,8 @@ export default function EditorView() {
             </div>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
               <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email adres..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
-              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}>
-                <option value="read">Lezen</option>
-                <option value="write">Bewerken</option>
-              </select>
-              <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Lezen</option><option value="write">Bewerken</option></select>
+              <button onClick={handleShare} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
             </div>
             <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>
