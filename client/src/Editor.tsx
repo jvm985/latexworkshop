@@ -7,14 +7,9 @@ import {
   Play, ChevronLeft, FileText, 
   Terminal, Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2,
   Settings, Download, Maximize2, LogOut, Loader2, Upload
 } from 'lucide-react';
-
-import { Viewer, Worker } from '@react-pdf-viewer/core';
-import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
-import '@react-pdf-viewer/core/lib/styles/index.css';
-import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
 
@@ -76,6 +71,7 @@ export default function EditorView() {
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
   const [showSettings, setShowSettings] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
@@ -90,12 +86,11 @@ export default function EditorView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   
-  const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const token = localStorage.getItem('latex_token');
 
   const compile = async (isAuto = false) => {
     if (compiling && isAuto) return;
-    if (!isAuto) setCompiling(true);
+    setCompiling(true);
     try {
       const res = await axios.post(`${API_URL}/compile/${id}`, {}, { 
         headers: { Authorization: `Bearer ${token}` }, 
@@ -105,14 +100,10 @@ export default function EditorView() {
       const url = window.URL.createObjectURL(blob);
       
       setPdfUrl(prev => {
-          if (prev) {
-              const old = prev;
-              setTimeout(() => window.URL.revokeObjectURL(old), 3000);
-          }
+          if (prev) setTimeout(() => window.URL.revokeObjectURL(prev), 5000);
           return url;
       });
       setLogs(null);
-      if (isAuto && view === 'logs') setView('split');
     } catch (err: any) {
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
@@ -120,12 +111,12 @@ export default function EditorView() {
           try {
             const result = JSON.parse(reader.result as string);
             setLogs(result.logs || 'Compilation failed.');
-            if (project?.type === 'typst' || !isAuto) setView('logs');
-          } catch(e) { setLogs('Compilation error.'); setView('logs'); }
+            if (project?.type === 'typst' || !isAuto) setShowLogs(true);
+          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setShowLogs(true); }
         };
         reader.readAsText(err.response.data);
       }
-    } finally { if (!isAuto) setCompiling(false); }
+    } finally { setCompiling(false); }
   };
 
   const fetchAll = async (autoCompile = false) => {
@@ -190,7 +181,11 @@ export default function EditorView() {
   };
 
   const switchDoc = (newDoc: any) => {
-      if (newDoc.isFolder) return;
+      if (newDoc.isFolder) {
+          setExpandedFolders(prev => ({ ...prev, [newDoc.path + newDoc.name + "/"]: !prev[newDoc.path + newDoc.name + "/"] }));
+          setActiveDoc(newDoc); 
+          return;
+      }
       setActiveDoc(newDoc);
       activeDocIdRef.current = newDoc._id;
       currentContentRef.current = newDoc.content || '';
@@ -238,16 +233,17 @@ export default function EditorView() {
           }
 
           const reader = new FileReader();
-          reader.onload = async () => {
+          reader.onload = () => {
               const base64 = (reader.result as string).split(',')[1];
-              await axios.post(`${API_URL}/projects/${id}/files`, { 
+              axios.post(`${API_URL}/projects/${id}/files`, { 
                   name, 
                   isFolder: false, 
                   isBinary: true, 
                   path: finalPath, 
                   binaryData: base64 
-              }, { headers: { Authorization: `Bearer ${token}` } });
-              if (i === files.length - 1) fetchAll();
+              }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
+                  if (i === files.length - 1) fetchAll();
+              });
           };
           reader.readAsDataURL(file);
       }
@@ -347,7 +343,7 @@ export default function EditorView() {
       return (
         <div key={folderPath}>
           <div 
-            onClick={() => isFolderNode ? setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] })) : switchDoc(item)} 
+            onClick={() => switchDoc(item)} 
             style={{ 
               display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, 
               cursor: 'pointer', fontSize: '13px', 
@@ -363,10 +359,10 @@ export default function EditorView() {
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
                 {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
-            {activeDoc?._id === (doc?._id || null) && (
+            {activeDoc?._id === (doc?._id || null) && doc && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    {doc && !isFolderNode && !doc.isMain && !doc.isBinary && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
-                    {doc && <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>}
+                    {!isFolderNode && !doc.isMain && !doc.isBinary && <Play size={12} onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); }}/>}
+                    <Trash2 size={12} color="#666" onClick={(e) => { e.stopPropagation(); deleteFile(doc._id); }}/>
                 </div>
             )}
           </div>
@@ -390,12 +386,12 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {logs && <button onClick={() => setShowLogs(!showLogs)} style={{ background: '#442222', border: '1px solid #ff5f56', color: '#ff5f56', padding: '4px 12px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14}/> Errors</button>}
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
           <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
             <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
           </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
-          <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}><Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
           {project.type === 'latex' && (
             <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -405,7 +401,7 @@ export default function EditorView() {
         </div>
       </nav>
 
-      <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <main style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Bestanden</span>
@@ -429,56 +425,60 @@ export default function EditorView() {
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
 
-        {view === 'split' ? (
-          <>
-            <div style={{ width: `${editorWidth}%`, height: '100%' }}>
-              {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                <Editor
-                    height="100%"
-                    language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
-                    theme="vs-dark"
-                    value={activeDoc.content || ''}
-                    onChange={handleEditorChange}
-                    options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
-                />
-              ) : (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
-                    {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
-                </div>
-              )}
-            </div>
-            <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
-            <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
-              {pdfUrl ? (
-                <div style={{ height: '100%', width: '100%' }}>
-                    {compiling && (
-                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Loader2 size={32} className="animate-spin" color="#0071e3"/>
-                        </div>
-                    )}
-                    <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
-                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                <div style={{ width: `${editorWidth}%`, height: '100%' }}>
+                {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
+                    <Editor
+                        height="100%"
+                        language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
+                        theme="vs-dark"
+                        value={activeDoc.content || ''}
+                        onChange={handleEditorChange}
+                        options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
+                    />
+                ) : (
+                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
+                        {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
                     </div>
-                    <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
-                        <Viewer fileUrl={pdfUrl} theme="dark" plugins={[defaultLayoutPluginInstance]} />
-                    </Worker>
+                )}
                 </div>
-              ) : (
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                  <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                  <span>PDF wordt geladen...</span>
+                <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
+                <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
+                {pdfUrl ? (
+                    <div style={{ height: '100%', width: '100%' }}>
+                        {compiling && (
+                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Loader2 size={32} className="animate-spin" color="#0071e3"/>
+                            </div>
+                        )}
+                        <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
+                            <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                            <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
+                        </div>
+                        {/* Smooth Transition Viewer */}
+                        <iframe key={pdfUrl} src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d' }} />
+                    </div>
+                ) : (
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                    <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                    <span>PDF wordt geladen...</span>
+                    </div>
+                )}
                 </div>
-              )}
             </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, background: '#000', padding: '40px', overflowY: 'auto' }}>
-            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px' }}><AlertCircle /> Compilatie Fouten</h2>
-            <pre style={{ background: '#111', padding: '24px', borderRadius: '12px', color: '#ddd', fontSize: '14px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>
-            <button onClick={() => setView('split')} style={{ marginTop: '20px', background: '#333', color: 'white', border: 'none', padding: '10px 24px', borderRadius: '6px', cursor: 'pointer' }}>Sluiten</button>
-          </div>
-        )}
+
+            {/* Error Panel (Bottom) */}
+            {showLogs && logs && (
+                <div style={{ height: '250px', background: '#000', borderTop: '2px solid #ff5f56', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 20px', background: '#1a1a1a' }}>
+                        <span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><Terminal size={14}/> COMPILATION LOGS</span>
+                        <X size={16} style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowLogs(false)}/>
+                    </div>
+                    <pre style={{ flex: 1, padding: '20px', color: '#ddd', fontSize: '13px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>
+                </div>
+            )}
+        </div>
       </main>
 
       {showSettings && (
