@@ -1,6 +1,6 @@
 FROM node:20-bullseye
 
-# Install Full TeXLive and compilers + Pandoc for conversion
+# Install Full TeXLive and compilers + Pandoc for conversion + Dutch language support
 RUN apt-get update && apt-get install -y \
     texlive-latex-base \
     texlive-latex-extra \
@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     texlive-science \
     texlive-xetex \
     texlive-luatex \
+    texlive-lang-european \
     latexmk \
     biber \
     curl \
