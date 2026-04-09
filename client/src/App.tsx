@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
-import { FileText, LogOut, Plus, RefreshCw, Layout } from 'lucide-react';
+import { FileText, LogOut, Plus, Layout } from 'lucide-react';
 import EditorView from './Editor';
 
 const API_URL = '/api';
@@ -24,7 +24,7 @@ function Login() {
   return (
     <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f5f5f7' }}>
       <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', textAlign: 'center' }}>
-        <h1 style={{ marginBottom: '20px' }}><Layout style={{ marginRight: '10px' }}/> LaTeX Workshop</h1>
+        <h1 style={{ marginBottom: '20px' }}><Layout style={{ marginRight: '10px', verticalAlign: 'middle' }}/> LaTeX Workshop</h1>
         <p style={{ color: '#666', marginBottom: '30px' }}>Log in om verder te gaan</p>
         <GoogleLogin onSuccess={handleLogin} onError={() => console.log('Login Failed')} />
       </div>
@@ -39,14 +39,22 @@ function Dashboard() {
   const token = localStorage.getItem('latex_token');
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    const fetchProjects = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+        setProjects(res.data);
+      } catch(e) {
+        if (axios.isAxiosError(e) && e.response?.status === 401) {
+          navigate('/login');
+        }
+      }
+    };
     fetchProjects();
-  }, []);
-
-  const fetchProjects = async () => {
-    const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
-    setProjects(res.data);
-  };
+  }, [navigate, token]);
 
   const createProject = async () => {
     if (!newProjectName) return;
@@ -71,11 +79,11 @@ function Dashboard() {
         <input 
           value={newProjectName} 
           onChange={(e) => setNewProjectName(e.target.value)} 
-          placeholder="Nieuw project naam..." 
+          placeholder="Nieuwe project naam..." 
           style={{ padding: '10px', borderRadius: '8px', border: '1px solid #ccc', flex: 1 }}
         />
         <button onClick={createProject} style={{ display: 'flex', alignItems: 'center', padding: '10px 20px', background: '#0071e3', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-          <Plus size={18} style={{ marginRight: '8px' }}/> Nieuw
+          <Plus size={18} style={{ marginRight: '8px' }}/> Nieuw Project
         </button>
       </div>
 
