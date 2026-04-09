@@ -1,12 +1,14 @@
 klaar
 -----
-
+je toont de bestanden in een project met foute namen
 
 to do
 -----
 
-latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error 
-typst compileert niet, enfin: toont lege pdf
-latex syntax highlighting toevoegen
-maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren, nieuw, verwijderen
-je toont de bestanden in een project met foute namen, en je toont ook geen boomstructuur
+-latex compileert niet: Command failed: pdflatex -interaction=nonstopmode -halt-on-error 
+-typst compileert niet, enfin: toont lege pdf
+-latex syntax highlighting toevoegen
+-je toont de bestanden in een project niet met boomstructuur, als ik een map maak kan ik er niet op klikken
+-in de geimporteerde projecten ontbreken veel bestanden, misschien geen mappen mee gekopieerd? Opnieuw en volledig
+-wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig
+-maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. voer die testen uit en wijzig code tot alles werkt.

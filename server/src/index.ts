@@ -20,7 +20,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
@@ -56,6 +56,8 @@ const documentSchema = new mongoose.Schema({
   name: { type: String, required: true },
   path: { type: String, default: '' },
   content: { type: String, default: '' },
+  binaryData: { type: Buffer },
+  isBinary: { type: Boolean, default: false },
   isFolder: { type: Boolean, default: false }
 });
 const Document = mongoose.model('Document', documentSchema);
@@ -114,9 +116,18 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
-  const { name, path, isFolder } = req.body;
-  const doc = await Document.create({ project: req.params.id, name, path, isFolder, content: '' });
+  const { name, path, isFolder, isBinary, content, binaryData } = req.body;
+  const doc = await Document.create({ 
+    project: req.params.id, name, path, isFolder, isBinary, 
+    content: content || '', 
+    binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null 
+  });
   res.json(doc);
+});
+
+app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
+    await Document.deleteOne({ _id: req.params.fileId, project: req.params.id });
+    res.json({ success: true });
 });
 
 app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
@@ -152,7 +163,12 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   for (const doc of documents) {
     const fullPath = path.join(workDir, doc.path, doc.name);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, doc.content);
+    
+    if (doc.isBinary && doc.binaryData) {
+        fs.writeFileSync(fullPath, doc.binaryData);
+    } else {
+        fs.writeFileSync(fullPath, doc.content);
+    }
     
     if (project.type === 'typst') {
         if (doc.name === 'main.typ' || doc.name === 'main.tex') mainFile = doc.name;
@@ -176,7 +192,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     }
     command = `typst compile ${mainFile} main.pdf`;
   } else {
-    // Robust LaTeX compilation using latexmk
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
     command = `latexmk -${compiler} -interaction=nonstopmode -f ${mainFile}`;
   }
