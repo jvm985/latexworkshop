@@ -119,7 +119,6 @@ export default function EditorView() {
           try {
             const result = JSON.parse(reader.result as string);
             setLogs(result.logs || 'Compilation failed.');
-            // Show logs even for auto-compile if it's Typst and there's a new error
             if (!isAuto || project?.type === 'typst') setView('logs');
           } catch(e) { setLogs('Compilation error.'); if (!isAuto) setView('logs'); }
         };
@@ -145,10 +144,15 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
   }, [id, token]);
 
   useEffect(() => {
@@ -175,10 +179,7 @@ export default function EditorView() {
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
     currentContentRef.current = value;
-    
-    // Update documents list in background
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
-    
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
     if (project?.type === 'typst') {
@@ -246,6 +247,17 @@ export default function EditorView() {
     await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
     if (activeDoc?._id === docId) setActiveDoc(null);
     fetchAll();
+  };
+
+  const convertProject = async () => {
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
   };
 
   const logout = () => {
@@ -368,6 +380,9 @@ export default function EditorView() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
+          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
+            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
+          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
           <button onClick={() => setView(view === 'logs' ? 'split' : 'logs')} style={{ background: 'none', border: 'none', color: logs ? '#ff5f56' : '#888', cursor: 'pointer', fontSize: '12px' }}><Terminal size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }}/> {logs ? 'Errors' : 'Logs'}</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
