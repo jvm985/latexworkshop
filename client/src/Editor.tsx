@@ -66,11 +66,11 @@ export default function EditorView() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
+  const [parsedErrors, setParsedErrors] = useState<any[]>([]);
   const [showShare, setShowShare] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
   const [showSettings, setShowSettings] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
@@ -79,6 +79,7 @@ export default function EditorView() {
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
+  const editorRef = useRef<any>(null);
   const compileTimeoutRef = useRef<any>(null);
   const currentContentRef = useRef<string>('');
   const activeDocIdRef = useRef<string | null>(null);
@@ -86,6 +87,39 @@ export default function EditorView() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   
   const token = localStorage.getItem('latex_token');
+
+  const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst') => {
+      const errors: any[] = [];
+      const lines = rawLogs.split('\n');
+      if (type === 'typst') {
+          for (let i = 0; i < lines.length; i++) {
+              const match = lines[i].match(/┌─\s+(.*?):(\d+):(\d+)/);
+              if (match) {
+                  errors.push({
+                      file: match[1].trim(),
+                      line: parseInt(match[2]),
+                      message: lines[i-1]?.trim() || 'Typst Error'
+                  });
+              }
+          }
+      } else {
+          let currentFile = 'main.tex';
+          for (let i = 0; i < lines.length; i++) {
+              const fileMatch = lines[i].match(/\((.*?\.tex)/);
+              if (fileMatch) currentFile = fileMatch[1].replace('./', '');
+              
+              const lineMatch = lines[i].match(/^l\.(\d+)/);
+              if (lineMatch) {
+                  errors.push({
+                      file: currentFile,
+                      line: parseInt(lineMatch[1]),
+                      message: lines[i-1]?.startsWith('!') ? lines[i-1].substring(1).trim() : 'LaTeX Error'
+                  });
+              }
+          }
+      }
+      return errors;
+  };
 
   const compile = async (isAuto = false) => {
     if (compiling && isAuto) return;
@@ -97,21 +131,23 @@ export default function EditorView() {
       });
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
-      
       setPdfUrl(prev => {
           if (prev) setTimeout(() => window.URL.revokeObjectURL(prev), 5000);
           return url;
       });
       setLogs(null);
+      setParsedErrors([]);
     } catch (err: any) {
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
         reader.onload = () => {
           try {
             const result = JSON.parse(reader.result as string);
-            setLogs(result.logs || 'Compilation failed.');
-            if (project?.type === 'typst' || !isAuto) setShowLogs(true);
-          } catch(e) { setLogs('Compilation error.'); if (!isAuto) setShowLogs(true); }
+            const rawLogs = result.logs || 'Compilation failed.';
+            setLogs(rawLogs);
+            setParsedErrors(parseLogErrors(rawLogs, project?.type || 'latex'));
+            setPdfUrl(null);
+          } catch(e) { setLogs('Compilation error.'); setPdfUrl(null); }
         };
         reader.readAsText(err.response.data);
       }
@@ -135,15 +171,10 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) {
-        navigate('/login');
-        return;
-    }
+    if (!token) return navigate('/login');
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -177,6 +208,20 @@ export default function EditorView() {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
     }
+  };
+
+  const jumpToError = (error: any) => {
+      const foundDoc = documents.find(d => d.name === error.file || d.name.endsWith(error.file));
+      if (foundDoc) {
+          switchDoc(foundDoc);
+          setTimeout(() => {
+              if (editorRef.current) {
+                  editorRef.current.revealLineInCenter(error.line);
+                  editorRef.current.setPosition({ lineNumber: error.line, column: 1 });
+                  editorRef.current.focus();
+              }
+          }, 100);
+      }
   };
 
   const switchDoc = (newDoc: any) => {
@@ -214,7 +259,6 @@ export default function EditorView() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
       const files = e.target.files;
       if (!files) return;
-      
       let basePath = "";
       if (activeDoc && activeDoc.isFolder) basePath = activeDoc.path + activeDoc.name + "/";
       else if (activeDoc && activeDoc.path) basePath = activeDoc.path;
@@ -224,23 +268,15 @@ export default function EditorView() {
           const relativePath = (file as any).webkitRelativePath || "";
           let finalPath = basePath;
           let name = file.name;
-
           if (isFolder && relativePath) {
               const parts = relativePath.split('/');
               name = parts.pop()!;
               finalPath = basePath + parts.join('/') + (parts.length > 0 ? "/" : "");
           }
-
           const reader = new FileReader();
           reader.onload = () => {
               const base64 = (reader.result as string).split(',')[1];
-              axios.post(`${API_URL}/projects/${id}/files`, { 
-                  name, 
-                  isFolder: false, 
-                  isBinary: true, 
-                  path: finalPath, 
-                  binaryData: base64 
-              }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
+              axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: true, path: finalPath, binaryData: base64 }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
                   if (i === files.length - 1) fetchAll();
               });
           };
@@ -253,17 +289,6 @@ export default function EditorView() {
     await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
     if (activeDoc?._id === docId) setActiveDoc(null);
     fetchAll();
-  };
-
-  const convertProject = async () => {
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
   };
 
   const logout = () => {
@@ -300,7 +325,6 @@ export default function EditorView() {
     documents.forEach(doc => {
       const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
       if (doc.isFolder) parts.push(doc.name); 
-      
       let current = root;
       parts.forEach((part: string, index: number) => {
         const isLast = index === parts.length - 1;
@@ -310,9 +334,7 @@ export default function EditorView() {
           if (!current._children[part] || !current._children[part]._isFolder) {
             current._children[part] = { _isFolder: true, _children: {}, _doc: null };
           }
-          if (isLast && doc.isFolder) {
-            current._children[part]._doc = doc;
-          }
+          if (isLast && doc.isFolder) current._children[part]._doc = doc;
           current = current._children[part];
         }
       });
@@ -385,11 +407,7 @@ export default function EditorView() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {logs && <button onClick={() => setShowLogs(!showLogs)} style={{ background: '#442222', border: '1px solid #ff5f56', color: '#ff5f56', padding: '4px 12px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertCircle size={14}/> Errors</button>}
           <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }} title="Settings"><Settings size={18}/></button>
-          <button onClick={convertProject} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }} title="Convert Project">
-            <RefreshCw size={16}/> {project.type === 'latex' ? '-> Typst' : '-> LaTeX'}
-          </button>
           <button onClick={() => setShowShare(true)} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Share2 size={16}/> Share</button>
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
           {project.type === 'latex' && (
@@ -414,69 +432,74 @@ export default function EditorView() {
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
-          
           <div style={{ padding: '12px', borderTop: '1px solid #222', display: 'flex', justifyContent: 'center' }}>
-              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer' }}>
-                  <LogOut size={14}/> Logout
-              </button>
+              <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer' }}><LogOut size={14}/> Logout</button>
           </div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                <div style={{ width: `${editorWidth}%`, height: '100%' }}>
-                {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                    <Editor
-                        height="100%"
-                        language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
-                        theme="vs-dark"
-                        value={activeDoc.content || ''}
-                        onChange={handleEditorChange}
-                        options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
-                    />
-                ) : (
-                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
-                        {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
-                    </div>
-                )}
-                </div>
-                <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
-                <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
-                {pdfUrl ? (
-                    <div style={{ height: '100%', width: '100%' }}>
-                        {compiling && (
-                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <Loader2 size={32} className="animate-spin" color="#0071e3"/>
-                            </div>
-                        )}
-                        <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
-                            <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
-                            <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
-                        </div>
-                        {/* Smooth Transition Viewer */}
-                        <iframe key={pdfUrl} src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d' }} />
-                    </div>
-                ) : (
-                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                    <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                    <span>PDF wordt geladen...</span>
-                    </div>
-                )}
-                </div>
-            </div>
-
-            {/* Error Panel (Bottom) */}
-            {showLogs && logs && (
-                <div style={{ height: '250px', background: '#000', borderTop: '2px solid #ff5f56', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 20px', background: '#1a1a1a' }}>
-                        <span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}><Terminal size={14}/> COMPILATION LOGS</span>
-                        <X size={16} style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowLogs(false)}/>
-                    </div>
-                    <pre style={{ flex: 1, padding: '20px', color: '#ddd', fontSize: '13px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ width: `${editorWidth}%`, height: '100%' }}>
+            {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
+                <Editor
+                    height="100%"
+                    language={activeDoc.name.endsWith('.tex') ? 'latex' : (project.type === 'typst' ? 'typst' : 'latex')}
+                    theme="vs-dark"
+                    value={activeDoc.content || ''}
+                    onChange={handleEditorChange}
+                    onMount={(editor) => editorRef.current = editor}
+                    options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }}
+                />
+            ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', textAlign: 'center', padding: '20px' }}>
+                    {activeDoc?.isBinary ? `Binaire bestanden (${activeDoc.name}) kunnen niet worden bewerkt.` : "Selecteer een bestand."}
                 </div>
             )}
+            </div>
+            <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333' }}></div>
+            <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative' }}>
+            {pdfUrl ? (
+                <div style={{ height: '100%', width: '100%' }}>
+                    {compiling && (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Loader2 size={32} className="animate-spin" color="#0071e3"/>
+                        </div>
+                    )}
+                    <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}>
+                        <a href={pdfUrl} download={`${project.name}.pdf`} style={{ background: '#333', color: 'white', padding: '6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF"><Download size={16}/></a>
+                        <button onClick={() => window.open(pdfUrl, '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button>
+                    </div>
+                    <iframe key={pdfUrl} src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d' }} />
+                </div>
+            ) : (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#1e1e1e' }}>
+                    {parsedErrors.length > 0 ? (
+                        <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+                            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', marginBottom: '24px' }}><AlertCircle /> Compilatie Fouten</h2>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {parsedErrors.map((err, i) => (
+                                    <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span>
+                                            <span style={{ color: '#888', fontSize: '11px' }}>Lijn {err.line}</span>
+                                        </div>
+                                        <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={() => setShowLogs(!showLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>
+                            {showLogs && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                        </div>
+                    ) : (
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                            {compiling ? <Loader2 size={48} className="animate-spin" style={{ opacity: 0.1, marginBottom: '10px' }}/> : <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>}
+                            <span>{compiling ? "Bezig met compileren..." : "Geen PDF beschikbaar."}</span>
+                        </div>
+                    )}
+                </div>
+            )}
+            </div>
         </div>
       </main>
 
@@ -490,9 +513,7 @@ export default function EditorView() {
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label>
               <select value={project.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}>
-                <option value="pdflatex">pdfLaTeX</option>
-                <option value="xelatex">XeLaTeX</option>
-                <option value="lualatex">LuaLaTeX</option>
+                <option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option>
               </select>
             </div>
             <button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button>
