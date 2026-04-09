@@ -147,11 +147,11 @@ export default function EditorView() {
       if (activeBuffer === 'a') {
           setPdfUrlB(url);
           setActiveBuffer('b');
-          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 3000);
+          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 2000);
       } else {
           setPdfUrlA(url);
           setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 3000);
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
       }
       
       setLogs(null);
@@ -187,11 +187,16 @@ export default function EditorView() {
   };
 
   useEffect(() => {
-    if (!token) return navigate('/login');
+    if (!token) {
+        navigate('/login');
+        return;
+    }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { socketRef.current?.disconnect(); };
-  }, [id, token]);
+    return () => { 
+        socketRef.current?.disconnect(); 
+    };
+  }, [id, token, navigate]); // Added navigate
 
   useEffect(() => {
     const docId = activeDoc?._id;
@@ -574,7 +579,7 @@ export default function EditorView() {
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span>
               <div style={{ marginTop: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div>
                   <div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Eigenaar</div></div>
                 </div>
                 {project?.sharedWith?.map((s: any) => (
