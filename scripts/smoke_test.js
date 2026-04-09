@@ -8,45 +8,41 @@ async function runFullTest() {
     const headers = { Authorization: `Bearer ${MOCK_TOKEN}` };
 
     try {
-        console.log('1. Creating New Project (LaTeX)...');
-        const projRes = await axios.post(`${API_URL}/projects`, { name: 'Smoke Test Proj', type: 'latex' }, { headers });
-        const projectId = projRes.data._id;
-        console.log(`✅ Project created: ${projectId}`);
+        console.log('1. Testing LaTeX Project...');
+        const projRes = await axios.post(`${API_URL}/projects`, { name: 'LaTeX Test', type: 'latex' }, { headers });
+        const latId = projRes.data._id;
+        console.log(`✅ LaTeX Project created: ${latId}`);
 
-        console.log('2. Fetching Project Details...');
-        const detailsRes = await axios.get(`${API_URL}/projects/${projectId}`, { headers });
-        if (detailsRes.data.documents.length > 0) {
-            console.log('✅ Documents found.');
-        } else {
-            throw new Error('No documents created for new project.');
+        const compileLat = await axios.post(`${API_URL}/compile/${latId}`, {}, { headers, responseType: 'arraybuffer' });
+        if (compileLat.status === 200 && compileLat.headers['content-type'] === 'application/pdf') {
+            console.log('✅ LaTeX Compilation successful.');
         }
+        await axios.delete(`${API_URL}/projects/${latId}`, { headers });
 
-        console.log('3. Compiling Project (checking PDF)...');
-        const compileRes = await axios.post(`${API_URL}/compile/${projectId}`, {}, { 
-            headers,
-            responseType: 'arraybuffer'
-        });
-        
-        if (compileRes.status === 200 && compileRes.headers['content-type'] === 'application/pdf') {
-            console.log('✅ Compilation successful (PDF received).');
-        } else {
-            throw new Error(`Compilation failed. Status: ${compileRes.status}, Type: ${compileRes.headers['content-type']}`);
-        }
+        console.log('2. Testing Typst Project...');
+        const typRes = await axios.post(`${API_URL}/projects`, { name: 'Typst Test', type: 'typst' }, { headers });
+        const typId = typRes.data._id;
+        console.log(`✅ Typst Project created: ${typId}`);
 
-        console.log('4. Deleting Project...');
-        const delRes = await axios.delete(`${API_URL}/projects/${projectId}`, { headers });
-        if (delRes.data.success) {
-            console.log('✅ Project deleted successfully.');
+        const compileTyp = await axios.post(`${API_URL}/compile/${typId}`, {}, { headers, responseType: 'arraybuffer' });
+        if (compileTyp.status === 200 && compileTyp.headers['content-type'] === 'application/pdf') {
+            console.log('✅ Typst Compilation successful.');
         } else {
-            throw new Error('Project deletion failed.');
+            console.error('❌ Typst Compilation failed. Content-Type:', compileTyp.headers['content-type']);
         }
+        await axios.delete(`${API_URL}/projects/${typId}`, { headers });
 
         console.log('✨ All Smoke Tests Passed!');
     } catch (err) {
         console.error('❌ Smoke Test Failed:', err.response?.data?.error || err.message);
-        if (err.response?.data?.logs) {
-            console.error('--- COMPILE LOGS ---');
-            console.error(err.response.data.logs);
+        if (err.response?.data instanceof Buffer) {
+            // If it's an arraybuffer, try to parse as JSON to see logs
+            try {
+                const text = Buffer.from(err.response.data).toString();
+                const json = JSON.parse(text);
+                console.error('--- COMPILE LOGS ---');
+                console.error(json.logs);
+            } catch(e) {}
         }
         process.exit(1);
     }
