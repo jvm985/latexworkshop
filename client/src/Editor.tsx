@@ -216,19 +216,28 @@ export default function EditorView() {
     };
   }, [leftWidth]);
 
+  // --- IMPROVED TREE LOGIC ---
   const buildTree = () => {
-    const root: any = { _children: {} };
+    const root: any = { _isFolder: true, _children: {}, _doc: null };
     documents.forEach(doc => {
       const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
       if (doc.isFolder) parts.push(doc.name); 
       
       let current = root;
       parts.forEach((part: string, index: number) => {
-        if (index === parts.length - 1 && !doc.isFolder) {
+        const isLast = index === parts.length - 1;
+        if (isLast && !doc.isFolder) {
+          // File node
           current._children[part] = doc;
         } else {
-          current._children[part] = current._children[part] || { _isFolderNode: true, _children: {} };
-          current = current._children[part]._children;
+          // Folder node
+          if (!current._children[part] || !current._children[part]._isFolder) {
+            current._children[part] = { _isFolder: true, _children: {}, _doc: null };
+          }
+          if (isLast && doc.isFolder) {
+            current._children[part]._doc = doc;
+          }
+          current = current._children[part];
         }
       });
     });
@@ -236,17 +245,21 @@ export default function EditorView() {
   };
 
   const renderNode = (node: any, path: string, depth: number) => {
-    const keys = Object.keys(node).sort((a,b) => {
-        const isAFolder = !!node[a]._isFolderNode;
-        const isBFolder = !!node[b]._isFolderNode;
-        if (isAFolder && !isBFolder) return -1;
-        if (!isAFolder && isBFolder) return 1;
-        return a.localeCompare(b);
+    if (!node || !node._children) return null;
+    
+    const keys = Object.keys(node._children).sort((a, b) => {
+      const itemA = node._children[a];
+      const itemB = node._children[b];
+      const isFolderA = !!itemA._isFolder;
+      const isFolderB = !!itemB._isFolder;
+      if (isFolderA && !isFolderB) return -1;
+      if (!isFolderA && isFolderB) return 1;
+      return a.localeCompare(b);
     });
 
     return keys.map(key => {
-      const item = node[key];
-      const isFolderNode = !!item._isFolderNode;
+      const item = node._children[key];
+      const isFolderNode = !!item._isFolder;
       const folderPath = `${path}${key}/`;
       const isExpanded = expandedFolders[folderPath];
       const doc = isFolderNode ? item._doc : item;
@@ -277,7 +290,7 @@ export default function EditorView() {
                 </div>
             )}
           </div>
-          {isFolderNode && isExpanded && renderNode(item._children, folderPath, depth + 1)}
+          {isFolderNode && isExpanded && renderNode(item, folderPath, depth + 1)}
         </div>
       );
     });
@@ -326,7 +339,7 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)}><FolderPlus size={14}/></button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree()._children, '/', 0)}</div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
         </aside>
 
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
