@@ -94,7 +94,6 @@ export default function EditorView() {
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
   const compileTimeoutRef = useRef<any>(null);
-  const currentContentRef = useRef<string>('');
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -160,7 +159,7 @@ export default function EditorView() {
       } else {
           setPdfUrlA(url);
           setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 3000);
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
       }
       
       setLogs(null);
@@ -205,7 +204,7 @@ export default function EditorView() {
     return () => { 
         socketRef.current?.disconnect(); 
     };
-  }, [id, token]); // Removed navigate from deps to avoid loop if it changes
+  }, [id, token]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
