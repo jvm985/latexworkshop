@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, Plus, LogOut, Search, Clock, 
-  Trash2, Shield, RefreshCw, Layers, Loader2
+  Trash2, Shield, Layers, Loader2
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -38,7 +38,7 @@ export default function Dashboard() {
       return;
     }
     fetchProjects();
-  }, [token, navigate]);
+  }, [token]);
 
   const createProject = async () => {
     if (!newName) return;
