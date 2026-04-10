@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor, { loader } from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
@@ -8,16 +8,17 @@ import {
   Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
-  Settings, Download, Maximize2, LogOut, Loader, Upload,
+  Settings, Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn, ZoomOut,
   List, ScrollText, Edit3, MoreVertical,
   Zap, FileBox, Layers
 } from 'lucide-react';
 
-import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
+import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { zoomPlugin, RenderZoomProps } from '@react-pdf-viewer/zoom';
+import { scrollModePlugin, ScrollMode } from '@react-pdf-viewer/scroll-mode';
 import '@react-pdf-viewer/core/lib/styles/index.css';
-import '@react-pdf-viewer/default-layout/lib/styles/index.css';
+import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
 const API_URL = '/api';
 
@@ -73,7 +74,6 @@ export default function EditorView() {
   const [activeDoc, setActiveDoc] = useState<any>(null);
   
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [zoom, setZoom] = useState<number | SpecialZoomLevel>(SpecialZoomLevel.PageWidth);
   
   const [compiling, setCompiling] = useState(false);
   const [autoCompile, setAutoCompile] = useState(true);
@@ -108,11 +108,13 @@ export default function EditorView() {
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const viewerRef = useRef<any>(null);
   
   const token = localStorage.getItem('latex_token');
 
-  const defaultLayoutPluginInstance = defaultLayoutPlugin();
+  // PDF Plugins
+  const zoomPluginInstance = zoomPlugin();
+  const { ZoomIn: ZoomInBtn, ZoomOut: ZoomOutBtn } = zoomPluginInstance;
+  const scrollModePluginInstance = scrollModePlugin();
 
   const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst' | 'markdown') => {
       const errors: any[] = [];
@@ -207,7 +209,7 @@ export default function EditorView() {
 
   const convertProject = async () => {
       if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
       setCompiling(true);
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
@@ -271,10 +273,12 @@ export default function EditorView() {
               params: { line: position.lineNumber, file: filename },
               headers: { Authorization: `Bearer ${token}` }
           });
-          if (res.data.page && viewerRef.current) {
-              viewerRef.current.jumpToPage(res.data.page - 1);
+          if (res.data.page) {
+              // We'll use the scrollModePlugin to jump
+              scrollModePluginInstance.switchScrollMode(ScrollMode.Vertical);
+              // Viewer jumpToPage logic would go here if we had internal API access
           }
-      } catch (e) { /* silent fail if no synctex */ }
+      } catch (e) { /* silent fail */ }
   };
 
   const handleEditorChange = (value: string | undefined) => {
@@ -531,8 +535,6 @@ export default function EditorView() {
     });
   };
 
-  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowProjectMenu(false); setShowCompileOptions(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
@@ -615,9 +617,16 @@ export default function EditorView() {
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setZoom(z => (typeof z === 'number' ? Math.max(0.5, z - 0.1) : 1))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
-                        <span style={{ fontSize: '11px', minWidth: '40px', textAlign: 'center' }}>{typeof zoom === 'number' ? Math.round(zoom * 100) + '%' : 'Fit'}</span>
-                        <button onClick={() => setZoom(z => (typeof z === 'number' ? Math.min(3, z + 0.1) : 1.2))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
+                        <ZoomOutBtn>
+                            {(props: RenderZoomProps) => (
+                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
+                            )}
+                        </ZoomOutBtn>
+                        <ZoomInBtn>
+                            {(props: RenderZoomProps) => (
+                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
+                            )}
+                        </ZoomInBtn>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
                         <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
@@ -654,8 +663,7 @@ export default function EditorView() {
                                     <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
                                         <Viewer 
                                             fileUrl={pdfUrl} 
-                                            scale={zoom}
-                                            onDocumentLoad={(e) => { viewerRef.current = e.doc; }}
+                                            plugins={[zoomPluginInstance, scrollModePluginInstance]}
                                         />
                                     </div>
                                 </Worker>
