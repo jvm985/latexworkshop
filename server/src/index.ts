@@ -9,6 +9,7 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mime from 'mime-types';
 
 dotenv.config();
 
@@ -148,6 +149,9 @@ app.get('/api/projects/:id/files/:fileId/raw', authenticate, async (req: any, re
     const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
     if (!doc) return res.status(404).send('File not found');
     
+    const contentType = mime.lookup(doc.name) || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+
     if (doc.isBinary && doc.binaryData) {
         res.send(doc.binaryData);
     } else {
@@ -156,6 +160,24 @@ app.get('/api/projects/:id/files/:fileId/raw', authenticate, async (req: any, re
 });
 
 app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
+    const oldDoc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
+    if (!oldDoc) return res.status(404).send('File not found');
+
+    const { path: newPath, name: newName } = req.body;
+
+    if (oldDoc.isFolder && (newPath !== undefined || newName !== undefined)) {
+        const oldFolderPath = oldDoc.path + oldDoc.name + "/";
+        const folderName = newName !== undefined ? newName : oldDoc.name;
+        const folderParentPath = newPath !== undefined ? newPath : oldDoc.path;
+        const newFolderPath = folderParentPath + folderName + "/";
+
+        const children = await Document.find({ project: req.params.id, path: new RegExp('^' + oldFolderPath) });
+        for (const child of children) {
+            const updatedPath = child.path.replace(oldFolderPath, newFolderPath);
+            await Document.updateOne({ _id: child._id }, { path: updatedPath });
+        }
+    }
+
     const doc = await Document.findOneAndUpdate(
         { _id: req.params.fileId, project: req.params.id }, 
         req.body, 
@@ -167,7 +189,6 @@ app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res)
 app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
     const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
     if (doc?.isFolder) {
-        // Recursive delete for folders
         const folderPath = doc.path + doc.name + "/";
         await Document.deleteMany({ project: req.params.id, path: new RegExp('^' + folderPath) });
     }
@@ -210,7 +231,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
-  const { preferredMain } = req.body;
+  const { preferredMain, mode } = req.body; // mode: 'normal', 'draft', 'precompile'
   let mainFile = '';
   let fallbackFile = '';
 
@@ -259,10 +280,13 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
       command = `pandoc "${mainFile}" -o main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-    command = `latexmk -${compiler} -interaction=nonstopmode -jobname=main -f "${mainFile}"`;
+    let extraFlags = '-interaction=nonstopmode -jobname=main -f';
+    if (mode === 'draft') extraFlags = '-interaction=nonstopmode -jobname=main -f -draftmode';
+    // Precompile preamble logic could be added here if needed, but for now we stick to flags
+    command = `latexmk -${compiler} ${extraFlags} "${mainFile}"`;
   }
 
-  console.log(`Compiling project ${project.name} (${project.type}) using ${mainFile}`);
+  console.log(`Compiling project ${project.name} (${project.type}) using ${mainFile} [Mode: ${mode || 'normal'}]`);
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');

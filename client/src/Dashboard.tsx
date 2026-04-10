@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, Plus, LogOut, Search, Clock, 
-  Trash2, Shield, RefreshCw, Layers
+  Trash2, Shield, RefreshCw, Layers, Loader2
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('latex');
   const token = localStorage.getItem('latex_token');
+  const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   const fetchProjects = async () => {
     try {
@@ -70,7 +71,7 @@ export default function Dashboard() {
 
   if (loading) return (
     <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
-      <RefreshCw className="animate-spin" />
+      <Loader2 className="animate-spin" />
     </div>
   );
 
@@ -93,12 +94,15 @@ export default function Dashboard() {
               style={{ background: '#1e1e1e', border: '1px solid #333', padding: '10px 12px 10px 40px', borderRadius: '10px', color: 'white', width: '300px', outline: 'none', transition: 'border-color 0.2s' }}
             />
           </div>
-          <button 
-            onClick={() => { localStorage.removeItem('latex_token'); navigate('/login'); }}
-            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <LogOut size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>{user.name?.[0]}</div>
+              <button 
+                onClick={() => { localStorage.clear(); navigate('/login'); }}
+                style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <LogOut size={20} />
+              </button>
+          </div>
         </div>
       </nav>
 
