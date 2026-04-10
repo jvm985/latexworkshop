@@ -44,8 +44,8 @@ const User = mongoose.model('User', userSchema);
 const projectSchema = new mongoose.Schema({
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
-  type: { type: String, enum: ['latex', 'typst'], default: 'latex' },
-  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst'], default: 'pdflatex' },
+  type: { type: String, enum: ['latex', 'typst', 'markdown'], default: 'latex' },
+  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc'], default: 'pdflatex' },
   sharedWith: [{
     email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
@@ -107,10 +107,22 @@ app.get('/api/projects', authenticate, async (req: any, res) => {
 
 app.post('/api/projects', authenticate, async (req: any, res) => {
   const { name, type } = req.body;
-  const compiler = type === 'typst' ? 'typst' : 'pdflatex';
+  let compiler = 'pdflatex';
+  if (type === 'typst') compiler = 'typst';
+  if (type === 'markdown') compiler = 'pandoc';
+  
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
-  const mainFile = type === 'typst' ? 'main.typ' : 'main.tex';
-  const content = type === 'typst' ? '#set page(paper: "a4")\n= Hello Typst' : '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
+  
+  let mainFile = 'main.tex';
+  let content = '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
+  if (type === 'typst') {
+      mainFile = 'main.typ';
+      content = '#set page(paper: "a4")\n= Hello Typst';
+  } else if (type === 'markdown') {
+      mainFile = 'main.md';
+      content = '# Hello Markdown\n\nThis is a professional document.';
+  }
+  
   await Document.create({ project: project._id, name: mainFile, content, isMain: true });
   res.json(project);
 });
@@ -132,7 +144,6 @@ app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   res.json(doc);
 });
 
-// Serve raw file content (for images/previews)
 app.get('/api/projects/:id/files/:fileId/raw', authenticate, async (req: any, res) => {
     const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
     if (!doc) return res.status(404).send('File not found');
@@ -154,6 +165,12 @@ app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res)
 });
 
 app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
+    const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
+    if (doc?.isFolder) {
+        // Recursive delete for folders
+        const folderPath = doc.path + doc.name + "/";
+        await Document.deleteMany({ project: req.params.id, path: new RegExp('^' + folderPath) });
+    }
     await Document.deleteOne({ _id: req.params.fileId, project: req.params.id });
     res.json({ success: true });
 });
@@ -209,6 +226,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     
     if (preferredMain && doc.name === preferredMain) {
         if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
+        else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
         else if (project.type === 'latex' && doc.content.includes('\\documentclass')) mainFile = preferredMain;
     }
 
@@ -216,12 +234,14 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
 
     if (project.type === 'typst') {
         if (!fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
+    } else if (project.type === 'markdown') {
+        if (!fallbackFile && doc.name.endsWith('.md')) fallbackFile = doc.name;
     } else {
         if (!fallbackFile && doc.name.endsWith('.tex') && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
     }
   }
 
-  if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ'))?.name || '');
+  if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
 
   if (!mainFile) {
       return res.status(400).json({ error: 'Geen compileerbaar bestand gevonden.' });
@@ -235,6 +255,8 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
         mainFile = newMain;
     }
     command = `typst compile "${mainFile}" main.pdf`;
+  } else if (project.type === 'markdown') {
+      command = `pandoc "${mainFile}" -o main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
     command = `latexmk -${compiler} -interaction=nonstopmode -jobname=main -f "${mainFile}"`;
@@ -246,7 +268,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => {
-          setTimeout(() => fs.rmSync(workDir, { recursive: true, force: true }), 5000);
+          setTimeout(() => fs.rmSync(workDir, { recursive: true, force: true }), 10000);
       });
     } else {
       res.status(500).json({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });

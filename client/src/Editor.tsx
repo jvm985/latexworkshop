@@ -9,8 +9,8 @@ import {
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
   Settings, Download, Maximize2, LogOut, Loader2, Upload,
-  Copy, Move, FileCode, ImageIcon, ZoomIn, ZoomOut,
-  List, ScrollText
+  MoreVertical, Copy, Move, FileCode, ImageIcon, ZoomIn, ZoomOut,
+  List, ScrollText, Edit3, MoreHorizontal
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -72,6 +72,8 @@ export default function EditorView() {
   const [zoom, setZoom] = useState(100);
   
   const [compiling, setCompiling] = useState(false);
+  const [autoCompile, setAutoCompile] = useState(true);
+  const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
   const [logs, setLogs] = useState<string | null>(null);
   const [parsedErrors, setParsedErrors] = useState<any[]>([]);
   const [logView, setLogView] = useState<'ordered' | 'raw'>('ordered');
@@ -100,7 +102,7 @@ export default function EditorView() {
   
   const token = localStorage.getItem('latex_token');
 
-  const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst') => {
+  const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst' | 'markdown') => {
       const errors: any[] = [];
       if (!rawLogs) return errors;
       const lines = rawLogs.split('\n');
@@ -118,17 +120,17 @@ export default function EditorView() {
       } else {
           let currentFile = 'main.tex';
           for (let i = 0; i < lines.length; i++) {
-              const fileMatch = lines[i].match(/\(([^()]*?\.tex)/);
+              const fileMatch = lines[i].match(/\(([^()]*?\.(?:tex|md|sty|cls))/);
               if (fileMatch) {
                   const cleaned = fileMatch[1].replace(/^\.\//, '');
                   if (!cleaned.includes('/usr/')) currentFile = cleaned;
               }
-              const lineMatch = lines[i].match(/^l\.(\d+)/);
+              const lineMatch = lines[i].match(/^l\.(\d+)/) || lines[i].match(/at line (\d+)/);
               if (lineMatch) {
                   errors.push({
                       file: currentFile,
                       line: parseInt(lineMatch[1]),
-                      message: lines[i-1]?.startsWith('!') ? lines[i-1].substring(1).trim() : 'LaTeX Error'
+                      message: lines[i-1]?.startsWith('!') ? lines[i-1].substring(1).trim() : 'Error'
                   });
               }
           }
@@ -136,8 +138,8 @@ export default function EditorView() {
       return errors;
   };
 
-  const compile = async (isAuto = false, typeOverride?: string) => {
-    if (compiling && isAuto) return;
+  const compile = async (isAutoMode = false, typeOverride?: string) => {
+    if (compiling && isAutoMode) return;
     setCompiling(true);
     const pType = typeOverride || project?.type || 'latex';
     try {
@@ -159,12 +161,14 @@ export default function EditorView() {
       } else {
           setPdfUrlA(url);
           setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
+          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 3000);
       }
       
       setLogs(null);
       setParsedErrors([]);
+      setLastStatus('success');
     } catch (err: any) {
+      setLastStatus('error');
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -180,17 +184,17 @@ export default function EditorView() {
     } finally { setCompiling(false); }
   };
 
-  const fetchAll = async (autoCompile = false) => {
+  const fetchAll = async (doAutoCompile = false) => {
     try {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(res.data.project);
       setDocuments(res.data.documents);
       
       if (res.data.documents.length > 0 && !activeDocIdRef.current) {
-        const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
+        const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ' || d.name === 'main.md') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         switchDoc(main);
       }
-      if (autoCompile) compile(true, res.data.project.type);
+      if (doAutoCompile) compile(true, res.data.project.type);
     } catch (e) { navigate('/'); }
   };
 
@@ -201,9 +205,7 @@ export default function EditorView() {
     }
     fetchAll(true);
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
-    return () => { 
-        socketRef.current?.disconnect(); 
-    };
+    return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
 
   useEffect(() => {
@@ -242,7 +244,7 @@ export default function EditorView() {
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
-    if (project?.type === 'typst') {
+    if (autoCompile) {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
     }
@@ -274,10 +276,18 @@ export default function EditorView() {
       }
       setActiveDoc(item);
       activeDocIdRef.current = item._id;
+      currentContentRef.current = item.content || '';
   };
 
   const setAsMain = async (fileId: string) => {
       await axios.post(`${API_URL}/projects/${id}/files/${fileId}/main`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
+  const renameFile = async (doc: any) => {
+      const newName = prompt('Enter new name:', doc.name);
+      if (!newName || newName === doc.name) return;
+      await axios.patch(`${API_URL}/projects/${id}/files/${doc._id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
       fetchAll();
   };
 
@@ -286,22 +296,28 @@ export default function EditorView() {
       setProject(res.data);
   };
 
-  const addFile = async (isFolder: boolean) => {
+  const addFile = async (isFolder: boolean, targetDoc?: any) => {
     const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
     if (!name) return;
+    
     let path = "";
-    if (activeDoc && activeDoc.isFolder) path = activeDoc.path + activeDoc.name + "/";
-    else if (activeDoc && activeDoc.path) path = activeDoc.path;
+    const base = targetDoc || activeDoc;
+    if (base && base.isFolder) path = base.path + base.name + "/";
+    else if (base && base.path) path = base.path;
+
     await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path }, { headers: { Authorization: `Bearer ${token}` } });
     fetchAll();
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false, targetDoc?: any) => {
       const files = e.target.files;
       if (!files) return;
+      
       let basePath = "";
-      if (activeDoc && activeDoc.isFolder) basePath = activeDoc.path + activeDoc.name + "/";
-      else if (activeDoc && activeDoc.path) basePath = activeDoc.path;
+      const base = targetDoc || activeDoc;
+      if (base && base.isFolder) basePath = base.path + base.name + "/";
+      else if (base && base.path) basePath = base.path;
+
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
           const relativePath = (file as any).webkitRelativePath || "";
@@ -342,18 +358,6 @@ export default function EditorView() {
       if (newPath === null) return;
       await axios.patch(`${API_URL}/projects/${id}/files/${doc._id}`, { path: newPath }, { headers: { Authorization: `Bearer ${token}` } });
       fetchAll();
-  };
-
-  const convertProject = async () => {
-      if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
   };
 
   const logout = () => {
@@ -406,6 +410,8 @@ export default function EditorView() {
     return root;
   };
 
+  const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
+
   const renderNode = (node: any, path: string, depth: number) => {
     if (!node || !node._children) return null;
     const keys = Object.keys(node._children).sort((a, b) => {
@@ -423,18 +429,41 @@ export default function EditorView() {
       const folderPath = `${path}${key}/`;
       const isExpanded = expandedFolders[folderPath];
       const doc = isFolderNode ? item._doc : item;
+      const itemId = doc?._id || folderPath;
+
       return (
         <div key={folderPath}>
           <div 
             onClick={() => switchDoc(item, folderPath)} 
             onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }}
-            style={{ display: 'flex', alignItems: 'center', padding: `4px 16px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === (doc?._id || null) ? '#37373d' : 'transparent', color: activeDoc?._id === (doc?._id || null) ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between' }}
+            style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between', position: 'relative' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : (doc?.isBinary ? <ImageIcon size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>)}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
                 {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
+            </div>
+            
+            {/* Explorer Item Menu (...) */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <button 
+                    onClick={(e) => { e.stopPropagation(); setActiveItemMenu(activeItemMenu === itemId ? null : itemId); }}
+                    style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: '2px' }}
+                >
+                    <MoreVertical size={14}/>
+                </button>
+                {activeItemMenu === itemId && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, background: '#252526', border: '1px solid #444', borderRadius: '6px', zIndex: 200, width: '140px', padding: '4px', boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>
+                        <button onClick={(e) => { e.stopPropagation(); if (doc) renameFile(doc); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Edit3 size={12}/> Rename</button>
+                        {doc && !doc.isFolder && <a href={`${API_URL}/projects/${id}/files/${doc._id}/raw`} download={doc.name} onClick={(e) => e.stopPropagation()} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}><Download size={12}/> Download</a>}
+                        <button onClick={(e) => { e.stopPropagation(); if (doc) deleteFile(doc._id); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Trash2 size={12}/> Delete</button>
+                        <div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>
+                        <button onClick={(e) => { e.stopPropagation(); addFile(false, doc || item); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><FilePlus size={12}/> New File</button>
+                        <button onClick={(e) => { e.stopPropagation(); addFile(true, doc || item); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><FolderPlus size={12}/> New Folder</button>
+                        <button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Upload size={12}/> Upload</button>
+                    </div>
+                )}
             </div>
           </div>
           {isFolderNode && isExpanded && renderNode(item, folderPath, depth + 1)}
@@ -448,23 +477,23 @@ export default function EditorView() {
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowProjectMenu(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '14px', fontWeight: 700 }}>{project?.name || 'Loading...'}</span>
-            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888' }}>{project?.type?.toUpperCase()}</span>
+            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888', fontWeight: 700 }}>{project?.type?.toUpperCase()}</span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowProjectMenu(!showProjectMenu)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>Project <ChevronDown size={14}/></button>
+              <button onClick={(e) => { e.stopPropagation(); setShowProjectMenu(!showProjectMenu); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>Project <ChevronDown size={14}/></button>
               {showProjectMenu && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '180px', padding: '8px' }}>
-                      <button onClick={() => { setShowShare(true); setShowProjectMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Share2 size={14}/> Share</button>
-                      <button onClick={() => { setShowSettings(true); setShowProjectMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Settings size={14}/> Settings</button>
-                      <button onClick={() => { convertProject(); setShowProjectMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><RefreshCw size={14}/> Convert</button>
+                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '180px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                      <button onClick={() => setShowShare(true)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Share2 size={14}/> Share</button>
+                      <button onClick={() => setShowSettings(true)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Settings size={14}/> Settings</button>
+                      <button onClick={convertProject} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><RefreshCw size={14}/> Convert</button>
                   </div>
               )}
           </div>
@@ -480,7 +509,6 @@ export default function EditorView() {
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)} title="New File"><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)} title="New Folder"><FolderPlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => fileInputRef.current?.click()} title="Upload Files"><Upload size={14}/></button>
-              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => folderInputRef.current?.click()} title="Upload Folder"><Folder size={14}/></button>
               <input type="file" ref={fileInputRef} onChange={(e) => handleUpload(e, false)} multiple style={{ display: 'none' }}/>
               <input type="file" ref={folderInputRef} onChange={(e) => handleUpload(e, true)} multiple {...{webkitdirectory: "", directory: ""} as any} style={{ display: 'none' }}/>
             </div>
@@ -488,40 +516,54 @@ export default function EditorView() {
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
         </aside>
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent', zIndex: 50 }}></div>
+        
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <div style={{ width: `${editorWidth}%`, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* Editor Area */}
+            <div style={{ width: `${editorWidth}%`, height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', color: '#aaa', fontWeight: 600 }}>{activeDoc?.name || 'No file selected'}</span>
-                    <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : 'Compile'}</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '12px', color: '#aaa', fontWeight: 600 }}>{activeDoc?.name || 'No file selected'}</span>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: lastStatus === 'success' ? '#4ade80' : lastStatus === 'error' ? '#ff5f56' : '#666', cursor: 'pointer' }} onClick={() => { if (lastStatus === 'error') setParsedErrors(parseLogErrors(logs || '', project.type)); }} title={lastStatus === 'error' ? 'Show Errors' : 'Status OK'}/>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#888' }}>
+                            <input type="checkbox" checked={autoCompile} onChange={(e) => setAutoCompile(e.target.checked)} style={{ cursor: 'pointer' }}/>
+                            <span>Auto</span>
+                        </div>
+                        <button onClick={() => compile()} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : 'Compile'}</button>
+                    </div>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (project?.type === 'typst' ? 'typst' : 'latex')} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => editorRef.current = editor} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
+                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (activeDoc.name?.endsWith('.md') ? 'markdown' : (project?.type === 'typst' ? 'typst' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => editorRef.current = editor} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
                     ) : activeDoc?.isBinary ? (
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', padding: '40px' }}>
-                            {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
+                            {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: '8px' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
                         </div>
                     ) : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
                 </div>
             </div>
-            <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', borderLeft: '1px solid #333', borderRight: '1px solid #333', zIndex: 50 }}></div>
+
+            <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
+
+            {/* PDF Area */}
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setZoom(z => Math.max(50, z - 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }}><ZoomOut size={14}/></button>
+                        <button onClick={() => setZoom(z => Math.max(50, z - 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
                         <span style={{ fontSize: '11px', minWidth: '40px', textAlign: 'center' }}>{zoom}%</span>
-                        <button onClick={() => setZoom(z => Math.min(200, z + 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }}><ZoomIn size={14}/></button>
+                        <button onClick={() => setZoom(z => Math.min(200, z + 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
-                        <button onClick={() => setLogView(logView === 'ordered' ? 'raw' : 'ordered')} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw' : 'Clean'}</button>
+                        <button onClick={() => setLogView(logView === 'ordered' ? 'raw' : 'ordered')} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw' : 'Errors'}</button>
                         {(pdfUrlA || pdfUrlB) && <a href={currentPdfUrl || '#'} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {logs && !compiling && (!currentPdfUrl || parsedErrors.length > 0) ? (
+                {logs && !compiling && parsedErrors.length > 0 ? (
                     <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
                         <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', marginBottom: '24px' }}><AlertCircle /> Compilation Error</h2>
-                        {logView === 'ordered' && parsedErrors.length > 0 ? (
+                        {logView === 'ordered' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {parsedErrors.map((err, i) => (
                                     <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
@@ -531,8 +573,8 @@ export default function EditorView() {
                                 ))}
                             </div>
                         ) : <pre style={{ padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>}
-                        {parsedErrors.length > 0 && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
-                        {showFullLogs && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                        {logView === 'ordered' && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
+                        {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
                     </div>
                 ) : (
                     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
@@ -547,11 +589,54 @@ export default function EditorView() {
             </div>
         </div>
       </main>
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
-          {contextMenu.doc && <><button onClick={() => { if (contextMenu.doc) copyFile(contextMenu.doc); setContextMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><button onClick={() => { if (contextMenu.doc) moveFile(contextMenu.doc); setContextMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Move size={14}/> Move</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => { if (contextMenu.doc) setAsMain(contextMenu.doc._id); setContextMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set as Main</button>}<button onClick={() => { if (contextMenu.doc) deleteFile(contextMenu.doc._id); setContextMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></>}
-      </div>}
-      {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option></select></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
-      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Deel Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email adres..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Lezen</option><option value="write">Bewerken</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Toegang</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Eigenaar</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Kan {s.permission === 'read' ? 'lezen' : 'bewerken'}</div></div></div>))}</div></div></div></div>}
+
+      {/* Context Menu */}
+      {contextMenu && (
+          <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+              <button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button>
+              <button onClick={() => moveFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Move size={14}/> Move</button>
+              <div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>
+              {!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}
+              <button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button>
+          </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2>
+              <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label>
+              <select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}>
+                <option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option>
+              </select>
+            </div>
+            <button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button>
+          </div>
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {showShare && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2>
+              <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+              <input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/>
+              <select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select>
+              <button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button>
+            </div>
+            <div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
