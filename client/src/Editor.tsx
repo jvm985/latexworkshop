@@ -9,7 +9,7 @@ import {
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
   Settings, Download, LogOut, Loader, Upload,
-  Copy, FileCode, ImageIcon, ZoomIn, ZoomOut,
+  Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
   Zap, FileBox, Layers
 } from 'lucide-react';
@@ -111,7 +111,7 @@ export default function EditorView() {
   const token = localStorage.getItem('latex_token');
 
   const zoomPluginInstance = zoomPlugin();
-  const { ZoomIn, ZoomOut: ZoomOutComp } = zoomPluginInstance;
+  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst' | 'markdown') => {
       const errors: any[] = [];
@@ -588,14 +588,14 @@ export default function EditorView() {
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <ZoomOutComp>
+                        <ZoomOut>
                             {(props) => (
-                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
+                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
                             )}
-                        </ZoomOutComp>
+                        </ZoomOut>
                         <ZoomIn>
                             {(props) => (
-                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
+                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
                             )}
                         </ZoomIn>
                     </div>
