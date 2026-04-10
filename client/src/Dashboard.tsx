@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  FileText, Plus, LogOut, Search, Clock, 
+  FileText, LogOut, Search, Clock, 
   Trash2, ExternalLink, Layout, RefreshCw
 } from 'lucide-react';
 
