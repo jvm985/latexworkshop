@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor, { loader } from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
@@ -13,6 +13,11 @@ import {
   List, ScrollText, Edit3, MoreVertical,
   Zap, FileBox, Layers
 } from 'lucide-react';
+
+import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
+import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
+import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const API_URL = '/api';
 
@@ -67,11 +72,8 @@ export default function EditorView() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [activeDoc, setActiveDoc] = useState<any>(null);
   
-  const [activeBuffer, setActiveBuffer] = useState<'a' | 'b'>('a');
-  const [pdfUrlA, setPdfUrlA] = useState<string | null>(null);
-  const [pdfUrlB, setPdfUrlB] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(100);
-  const [pdfPage, setPdfPage] = useState(1);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<number | SpecialZoomLevel>(SpecialZoomLevel.PageWidth);
   
   const [compiling, setCompiling] = useState(false);
   const [autoCompile, setAutoCompile] = useState(true);
@@ -106,8 +108,11 @@ export default function EditorView() {
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const viewerRef = useRef<any>(null);
   
   const token = localStorage.getItem('latex_token');
+
+  const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
   const parseLogErrors = (rawLogs: string, type: 'latex' | 'typst' | 'markdown') => {
       const errors: any[] = [];
@@ -161,16 +166,7 @@ export default function EditorView() {
       
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
-      
-      if (activeBuffer === 'a') {
-          setPdfUrlB(url);
-          setActiveBuffer('b');
-          if (pdfUrlA) setTimeout(() => window.URL.revokeObjectURL(pdfUrlA), 3000);
-      } else {
-          setPdfUrlA(url);
-          setActiveBuffer('a');
-          if (pdfUrlB) setTimeout(() => window.URL.revokeObjectURL(pdfUrlB), 2000);
-      }
+      setPdfUrl(url);
       
       setLogs(null);
       setParsedErrors([]);
@@ -259,18 +255,34 @@ export default function EditorView() {
     };
   }, [activeDoc?._id]);
 
+  // Forward Sync Logic
+  const lastSyncRef = useRef(0);
+  const syncToPdf = async () => {
+      if (!editorRef.current || !activeDoc || activeDoc.isFolder || activeDoc.isBinary) return;
+      const now = Date.now();
+      if (now - lastSyncRef.current < 1000) return;
+      lastSyncRef.current = now;
+
+      const position = editorRef.current.getPosition();
+      const filename = activeDoc.name;
+      
+      try {
+          const res = await axios.get(`${API_URL}/projects/${id}/synctex`, {
+              params: { line: position.lineNumber, file: filename },
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.page && viewerRef.current) {
+              viewerRef.current.jumpToPage(res.data.page - 1);
+          }
+      } catch (e) { /* silent fail if no synctex */ }
+  };
+
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
-    // Sync PDF page estimation
-    if (editorRef.current) {
-        const line = editorRef.current.getPosition().lineNumber;
-        const totalLines = editorRef.current.getModel().getLineCount();
-        const estimatedPage = Math.max(1, Math.ceil((line / totalLines) * 5)); // Very rough heuristic
-        setPdfPage(estimatedPage);
-    }
+    syncToPdf();
 
     if (autoCompile) {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
@@ -519,8 +531,6 @@ export default function EditorView() {
     });
   };
 
-  const currentPdfUrl = activeBuffer === 'a' ? pdfUrlA : pdfUrlB;
-
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
@@ -605,14 +615,14 @@ export default function EditorView() {
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setZoom(z => Math.max(50, z - 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
-                        <span style={{ fontSize: '11px', minWidth: '40px', textAlign: 'center' }}>{zoom}%</span>
-                        <button onClick={() => setZoom(z => Math.min(200, z + 10))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
+                        <button onClick={() => setZoom(z => (typeof z === 'number' ? Math.max(0.5, z - 0.1) : 1))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOut size={14}/></button>
+                        <span style={{ fontSize: '11px', minWidth: '40px', textAlign: 'center' }}>{typeof zoom === 'number' ? Math.round(zoom * 100) + '%' : 'Fit'}</span>
+                        <button onClick={() => setZoom(z => (typeof z === 'number' ? Math.min(3, z + 0.1) : 1.2))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomIn size={14}/></button>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
                         <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
                         <button onClick={() => setShowErrorView(!showErrorView)} style={{ background: showErrorView ? '#0071e3' : '#333', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>{showErrorView ? 'Show PDF' : 'Show Logs'}</button>
-                        {(pdfUrlA || pdfUrlB) && <a href={currentPdfUrl || '#'} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
+                        {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -636,12 +646,26 @@ export default function EditorView() {
                         {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
                     </div>
                 ) : (
-                    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+                    <div style={{ height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
                         {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
-                        {(pdfUrlA || pdfUrlB) && <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}><button onClick={() => window.open(currentPdfUrl || '', '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button></div>}
-                        <iframe src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}&page=${pdfPage}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} />
-                        <iframe src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}&page=${pdfPage}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} />
-                        {!pdfUrlA && !pdfUrlB && !compiling && !logs && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}><Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/><span>PDF Loading...</span></div>}
+                        {pdfUrl ? (
+                            <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
+                                <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
+                                    <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+                                        <Viewer 
+                                            fileUrl={pdfUrl} 
+                                            scale={zoom}
+                                            onDocumentLoad={(e) => { viewerRef.current = e.doc; }}
+                                        />
+                                    </div>
+                                </Worker>
+                            </div>
+                        ) : !compiling && !logs && (
+                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                                <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                                <span>PDF Loading...</span>
+                            </div>
+                        )}
                     </div>
                 )}
                 </div>
@@ -650,7 +674,7 @@ export default function EditorView() {
       </main>
       {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}<button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></div>}
       {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
-      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
+      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
     </div>
   );
 }

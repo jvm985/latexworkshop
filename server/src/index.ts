@@ -289,7 +289,15 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
+    const synctexPath = path.join(workDir, 'main.synctex.gz');
+    
     if (fs.existsSync(pdfPath)) {
+      // Save synctex persistently
+      if (fs.existsSync(synctexPath)) {
+          const persistentSynctex = path.join('/tmp', `synctex_${project._id}.gz`);
+          fs.copyFileSync(synctexPath, persistentSynctex);
+      }
+
       res.sendFile(pdfPath, () => {
           setTimeout(() => fs.rmSync(workDir, { recursive: true, force: true }), 10000);
       });
@@ -298,6 +306,36 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });
+});
+
+// SyncTeX API
+app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
+    const { line, file } = req.query;
+    const synctexFile = path.join('/tmp', `synctex_${req.params.id}.gz`);
+    
+    if (!fs.existsSync(synctexFile)) return res.status(404).send('SyncTeX file not found');
+
+    // Run synctex tool to find position
+    // synctex view -i <line>:<col>:<file> -o <any_pdf_name>
+    const command = `synctex view -i ${line}:0:${file} -o dummy.pdf`;
+    exec(command, { cwd: '/tmp' }, (error, stdout) => {
+        if (error) return res.status(500).send('SyncTeX error');
+        
+        // Parse stdout: "Page:1", "x:100", "y:200"
+        const pageMatch = stdout.match(/Page:(\d+)/);
+        const xMatch = stdout.match(/x:([\d.]+)/);
+        const yMatch = stdout.match(/y:([\d.]+)/);
+
+        if (pageMatch) {
+            res.json({
+                page: parseInt(pageMatch[1]),
+                x: xMatch ? parseFloat(xMatch[1]) : 0,
+                y: yMatch ? parseFloat(yMatch[1]) : 0
+            });
+        } else {
+            res.status(404).send('Position not found');
+        }
+    });
 });
 
 io.on('connection', (socket) => {
