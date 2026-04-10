@@ -272,13 +272,36 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
         if (fs.existsSync(path.join(workDir, mainFile))) fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
         mainFile = newMain;
     }
-    // Typst incremental is automatic when using stable workDir and cacheDir
     command = `typst compile "${mainFile}" main.pdf`;
   } else if (project.type === 'markdown') {
       command = `pandoc "${mainFile}" -o main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-    if (mode === 'draft') {
+    
+    if (usePreamble) {
+        // Advanced Preamble Precompilation
+        const mainContent = documents.find(d => d.name === mainFile)?.content || "";
+        const preambleEnd = mainContent.indexOf('\\begin{document}');
+        if (preambleEnd !== -1) {
+            const preamble = mainContent.substring(0, preambleEnd);
+            const preambleFile = path.join(workDir, 'preamble.tex');
+            fs.writeFileSync(preambleFile, preamble + '\n\\begin{document}\n\\end{document}');
+            
+            // Check if we need to re-dump the format
+            const fmtFile = path.join(workDir, 'preamble.fmt');
+            if (!fs.existsSync(fmtFile) || mode !== 'draft') {
+                exec(`${compiler} -ini -jobname="preamble" "&${compiler} preamble.tex\\dump"`, { cwd: workDir });
+            }
+            
+            if (mode === 'draft') {
+                command = `${compiler} -interaction=nonstopmode -draftmode -fmt preamble -jobname=main "${mainFile}"`;
+            } else {
+                command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 -latexoption="-fmt preamble" "${mainFile}"`;
+            }
+        } else {
+            command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 "${mainFile}"`;
+        }
+    } else if (mode === 'draft') {
         command = `${compiler} -interaction=nonstopmode -draftmode -jobname=main "${mainFile}"`;
     } else {
         let latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
@@ -287,7 +310,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     }
   }
 
-  console.log(`Compiling ${project.name} [${project.type}] [Mode: ${mode || 'normal'}] (Incremental Path: ${workDir})`);
+  console.log(`Compiling ${project.name} [${project.type}] [Mode: ${mode || 'normal'}, Preamble: ${usePreamble}]`);
 
   exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
