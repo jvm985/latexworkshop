@@ -5,7 +5,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -223,109 +223,108 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 });
 
 // --- COMPILATION ENGINE ---
+const compileProject = async (project: any, documents: any[], options: any) => {
+    const { preferredMain, mode, usePreamble } = options;
+    
+    // Stable incremental path per project
+    const workDir = path.join('/tmp', `workshop_project_${project._id}`);
+    const cacheDir = path.join('/tmp', `workshop_cache_${project._id}`);
+    
+    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+    let mainFile = '';
+    let fallbackFile = '';
+
+    for (const doc of documents) {
+        const fullPath = path.join(workDir, doc.path, doc.name);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        
+        const newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(doc.content);
+        if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
+            fs.writeFileSync(fullPath, newContent);
+        }
+        
+        if (preferredMain && doc.name === preferredMain) {
+            if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
+            else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
+            else if (project.type === 'latex' && doc.content.includes('\\documentclass')) mainFile = preferredMain;
+        }
+        if (doc.isMain && !mainFile) mainFile = doc.name;
+        if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
+        if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = doc.name;
+        if (project.type === 'latex' && !fallbackFile && doc.name.endsWith('.tex') && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
+    }
+
+    if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
+    if (!mainFile) throw new Error('Geen compileerbaar bestand gevonden.');
+
+    let command = '';
+    const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
+
+    if (project.type === 'typst') {
+        command = `typst compile "${mainFile}" main.pdf`;
+    } else if (project.type === 'markdown') {
+        command = `pandoc "${mainFile}" -o main.pdf`;
+    } else {
+        const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
+        
+        if (usePreamble) {
+            const mainDoc = documents.find(d => d.name === mainFile);
+            if (mainDoc) {
+                const preambleEnd = mainDoc.content.indexOf('\\begin{document}');
+                if (preambleEnd !== -1) {
+                    const preamble = mainDoc.content.substring(0, preambleEnd);
+                    fs.writeFileSync(path.join(workDir, 'preamble.tex'), preamble + '\n\\begin{document}\n\\end{document}');
+                    // Precompile format if missing or not draft
+                    if (!fs.existsSync(path.join(workDir, 'preamble.fmt')) || mode !== 'draft') {
+                        await new Promise((resolve) => {
+                            exec(`${compiler} -ini -jobname="preamble" "&${compiler} preamble.tex\\dump"`, { cwd: workDir }, () => resolve(true));
+                        });
+                    }
+                }
+            }
+        }
+
+        if (mode === 'draft') {
+            // Fast single pass
+            const fmtFlag = usePreamble ? '-fmt preamble' : '';
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname=main "${mainFile}"`;
+        } else {
+            // Full convergence
+            const latexOption = usePreamble ? '-latexoption="-fmt preamble"' : '';
+            command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexOption} "${mainFile}"`;
+        }
+    }
+
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
+            const pdfPath = path.join(workDir, 'main.pdf');
+            const synctexPath = path.join(workDir, 'main.synctex.gz');
+            
+            if (fs.existsSync(pdfPath)) {
+                if (fs.existsSync(synctexPath)) {
+                    fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
+                }
+                resolve({ pdfPath, logs: stdout + "\n" + stderr });
+            } else {
+                reject({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });
+            }
+        });
+    });
+};
+
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
   
-  // Incremental support: Use a stable working directory per project
-  const workDir = path.join('/tmp', `workshop_project_${project._id}`);
-  const cacheDir = path.join('/tmp', `workshop_cache_${project._id}`);
-  
-  if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-
   const documents = await Document.find({ project: project._id, isFolder: false });
-  const { preferredMain, mode, usePreamble } = req.body;
-  let mainFile = '';
-  let fallbackFile = '';
-
-  for (const doc of documents) {
-    const fullPath = path.join(workDir, doc.path, doc.name);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    
-    // Only write if changed or not exists
-    const newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(doc.content);
-    if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
-        fs.writeFileSync(fullPath, newContent);
-    }
-    
-    if (preferredMain && doc.name === preferredMain) {
-        if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
-        else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
-        else if (project.type === 'latex' && doc.content.includes('\\documentclass')) mainFile = preferredMain;
-    }
-    if (doc.isMain && !mainFile) mainFile = doc.name;
-    if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
-    if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = doc.name;
-    if (project.type === 'latex' && !fallbackFile && doc.name.endsWith('.tex') && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
+  try {
+      const result: any = await compileProject(project, documents, req.body);
+      res.sendFile(result.pdfPath);
+  } catch (err: any) {
+      res.status(500).json(err);
   }
-
-  if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
-  if (!mainFile) return res.status(400).json({ error: 'Geen compileerbaar bestand gevonden.' });
-
-  let command = '';
-  const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
-
-  if (project.type === 'typst') {
-    if (mainFile.endsWith('.tex')) {
-        const newMain = mainFile.replace('.tex', '.typ');
-        if (fs.existsSync(path.join(workDir, mainFile))) fs.renameSync(path.join(workDir, mainFile), path.join(workDir, newMain));
-        mainFile = newMain;
-    }
-    command = `typst compile "${mainFile}" main.pdf`;
-  } else if (project.type === 'markdown') {
-      command = `pandoc "${mainFile}" -o main.pdf`;
-  } else {
-    const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-    
-    if (usePreamble) {
-        // Advanced Preamble Precompilation
-        const mainContent = documents.find(d => d.name === mainFile)?.content || "";
-        const preambleEnd = mainContent.indexOf('\\begin{document}');
-        if (preambleEnd !== -1) {
-            const preamble = mainContent.substring(0, preambleEnd);
-            const preambleFile = path.join(workDir, 'preamble.tex');
-            fs.writeFileSync(preambleFile, preamble + '\n\\begin{document}\n\\end{document}');
-            
-            // Check if we need to re-dump the format
-            const fmtFile = path.join(workDir, 'preamble.fmt');
-            if (!fs.existsSync(fmtFile) || mode !== 'draft') {
-                exec(`${compiler} -ini -jobname="preamble" "&${compiler} preamble.tex\\dump"`, { cwd: workDir });
-            }
-            
-            if (mode === 'draft') {
-                command = `${compiler} -interaction=nonstopmode -draftmode -fmt preamble -jobname=main "${mainFile}"`;
-            } else {
-                command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 -latexoption="-fmt preamble" "${mainFile}"`;
-            }
-        } else {
-            command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 "${mainFile}"`;
-        }
-    } else if (mode === 'draft') {
-        command = `${compiler} -interaction=nonstopmode -draftmode -jobname=main "${mainFile}"`;
-    } else {
-        let latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-        let flags = '-interaction=nonstopmode -jobname=main -f -synctex=1';
-        command = `latexmk -${latexmkCompiler} ${flags} "${mainFile}"`;
-    }
-  }
-
-  console.log(`Compiling ${project.name} [${project.type}] [Mode: ${mode || 'normal'}, Preamble: ${usePreamble}]`);
-
-  exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
-    const pdfPath = path.join(workDir, 'main.pdf');
-    const synctexPath = path.join(workDir, 'main.synctex.gz');
-    
-    if (fs.existsSync(pdfPath)) {
-      if (fs.existsSync(synctexPath)) {
-          const persistentSynctex = path.join('/tmp', `synctex_${project._id}.gz`);
-          fs.copyFileSync(synctexPath, persistentSynctex);
-      }
-      res.sendFile(pdfPath);
-    } else {
-      res.status(500).json({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });
-    }
-  });
 });
 
 // SyncTeX API
@@ -338,12 +337,10 @@ app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
     exec(command, { cwd: '/tmp' }, (error, stdout) => {
         if (error) return res.status(500).send('SyncTeX error');
         const pageMatch = stdout.match(/Page:(\d+)/);
-        const xMatch = stdout.match(/x:([\d.]+)/);
         const yMatch = stdout.match(/y:([\d.]+)/);
         if (pageMatch) {
             res.json({
                 page: parseInt(pageMatch[1]),
-                x: xMatch ? parseFloat(xMatch[1]) : 0,
                 y: yMatch ? parseFloat(yMatch[1]) : 0
             });
         } else {

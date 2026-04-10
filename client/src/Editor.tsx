@@ -14,7 +14,7 @@ import {
   Zap, Layers
 } from 'lucide-react';
 
-import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
@@ -108,6 +108,7 @@ export default function EditorView() {
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const viewerInstanceRef = useRef<any>(null);
   
   const token = localStorage.getItem('latex_token');
 
@@ -256,11 +257,32 @@ export default function EditorView() {
     };
   }, [activeDoc?._id]);
 
+  const lastSyncRef = useRef(0);
+  const syncToPdf = async () => {
+      if (!editorRef.current || !activeDoc || activeDoc.isFolder || activeDoc.isBinary || project?.type !== 'latex') return;
+      const now = Date.now();
+      if (now - lastSyncRef.current < 1500) return;
+      lastSyncRef.current = now;
+
+      const position = editorRef.current.getPosition();
+      try {
+          const res = await axios.get(`${API_URL}/projects/${id}/synctex`, {
+              params: { line: position.lineNumber, file: activeDoc.name },
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.page && viewerInstanceRef.current) {
+              viewerInstanceRef.current.jumpToPage(res.data.page - 1);
+          }
+      } catch (e) { /* silent fail */ }
+  };
+
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
+    syncToPdf();
+
     if (autoCompile) {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
@@ -588,12 +610,12 @@ export default function EditorView() {
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (activeDoc.name?.endsWith('.md') ? 'markdown' : (project?.type === 'typst' ? 'typst' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => editorRef.current = editor} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
+                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (activeDoc.name?.endsWith('.md') ? 'markdown' : (project?.type === 'typst' ? 'typst' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; editor.onMouseDown(syncToPdf); }} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
                     ) : activeDoc?.isBinary ? (
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', padding: '40px' }}>
                             {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw?t=${Date.now()}`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: '8px' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
                         </div>
-                    ) : <div style={{ height: '100%', display: 'center', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
+                    ) : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
                 </div>
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
@@ -647,6 +669,8 @@ export default function EditorView() {
                                         <Viewer 
                                             fileUrl={pdfUrl} 
                                             plugins={[zoomPluginInstance]}
+                                            onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
+                                            defaultScale={SpecialZoomLevel.PageWidth}
                                         />
                                     </div>
                                 </Worker>
@@ -665,7 +689,7 @@ export default function EditorView() {
       </main>
       {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}<button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></div>}
       {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
-      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
+      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
     </div>
   );
 }
