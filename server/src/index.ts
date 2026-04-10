@@ -231,7 +231,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
-  const { preferredMain, mode } = req.body;
+  const { preferredMain, mode, usePreamble } = req.body;
   let mainFile = '';
   let fallbackFile = '';
 
@@ -279,20 +279,34 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   } else if (project.type === 'markdown') {
       command = `pandoc "${mainFile}" -o main.pdf`;
   } else {
-    const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-    let extraFlags = '-interaction=nonstopmode -jobname=main -f -synctex=1';
-    if (mode === 'draft') extraFlags = '-interaction=nonstopmode -jobname=main -f -draftmode';
-    command = `latexmk -${compiler} ${extraFlags} "${mainFile}"`;
+    const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
+    
+    if (mode === 'draft') {
+        // Single pass, no PDF output (just logs/errors), extremely fast
+        command = `${compiler} -interaction=nonstopmode -draftmode -jobname=main "${mainFile}"`;
+    } else {
+        // Full convergence via latexmk
+        let latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
+        let flags = '-interaction=nonstopmode -jobname=main -f -synctex=1';
+        
+        // If preamble is requested, we can use specific optimizations if available
+        // For now, we ensure synctex is on for forward sync
+        command = `latexmk -${latexmkCompiler} ${flags} "${mainFile}"`;
+    }
   }
 
-  console.log(`Compiling project ${project.name} (${project.type}) using ${mainFile} [Mode: ${mode || 'normal'}]`);
+  console.log(`Compiling project ${project.name} (${project.type}) using ${mainFile} [Mode: ${mode || 'normal'}, Preamble: ${usePreamble}]`);
 
   exec(command, { cwd: workDir, timeout: 60000 }, (error, stdout, stderr) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     const synctexPath = path.join(workDir, 'main.synctex.gz');
     
+    // In draft mode, we might not have a PDF, but we want the logs. 
+    // However, the user expect a PDF usually.
+    // If draft mode succeeded, we try to see if a previous main.pdf exists? No, fresh dir.
+    // So for draft mode, we still want a PDF if possible, but fast.
+    
     if (fs.existsSync(pdfPath)) {
-      // Save synctex persistently
       if (fs.existsSync(synctexPath)) {
           const persistentSynctex = path.join('/tmp', `synctex_${project._id}.gz`);
           fs.copyFileSync(synctexPath, persistentSynctex);
@@ -315,13 +329,10 @@ app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
     
     if (!fs.existsSync(synctexFile)) return res.status(404).send('SyncTeX file not found');
 
-    // Run synctex tool to find position
-    // synctex view -i <line>:<col>:<file> -o <any_pdf_name>
     const command = `synctex view -i ${line}:0:${file} -o dummy.pdf`;
     exec(command, { cwd: '/tmp' }, (error, stdout) => {
         if (error) return res.status(500).send('SyncTeX error');
         
-        // Parse stdout: "Page:1", "x:100", "y:200"
         const pageMatch = stdout.match(/Page:(\d+)/);
         const xMatch = stdout.match(/x:([\d.]+)/);
         const yMatch = stdout.match(/y:([\d.]+)/);

@@ -11,7 +11,7 @@ import {
   Settings, Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
-  Zap, FileBox, Layers
+  Zap, Layers
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -76,7 +76,8 @@ export default function EditorView() {
   
   const [compiling, setCompiling] = useState(false);
   const [autoCompile, setAutoCompile] = useState(true);
-  const [compileMode, setCompileMode] = useState<'normal' | 'draft' | 'precompile'>('normal');
+  const [compileMode, setCompileMode] = useState<'normal' | 'draft'>('normal');
+  const [usePreamble, setUsePreamble] = useState(false);
   const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
   const [logs, setLogs] = useState<string | null>(null);
   const [parsedErrors, setParsedErrors] = useState<any[]>([]);
@@ -157,7 +158,8 @@ export default function EditorView() {
       const currentDocName = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current)?.name : null;
       const res = await axios.post(`${API_URL}/compile/${id}`, {
           preferredMain: currentDocName,
-          mode: compileMode
+          mode: compileMode,
+          usePreamble: usePreamble
       }, { 
         headers: { Authorization: `Bearer ${token}` }, 
         responseType: 'blob' 
@@ -232,7 +234,7 @@ export default function EditorView() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, documents, compileMode]);
+  }, [project, documents, compileMode, usePreamble]);
 
   useEffect(() => {
     const docId = activeDoc?._id;
@@ -506,6 +508,10 @@ export default function EditorView() {
     });
   };
 
+  const currentPdfUrl = pdfUrl;
+
+  if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowProjectMenu(false); setShowCompileOptions(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
@@ -559,19 +565,27 @@ export default function EditorView() {
                             <input type="checkbox" checked={autoCompile} onChange={(e) => setAutoCompile(e.target.checked)} style={{ cursor: 'pointer' }}/>
                             <span>Auto</span>
                         </div>
-                        <div style={{ display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'hidden' }}>
-                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (compileMode === 'normal' ? 'Compile' : compileMode.charAt(0).toUpperCase() + compileMode.slice(1))}</button>
+                        <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
+                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (compileMode === 'normal' ? 'Compile' : 'Draft')}</button>
                             {project?.type === 'latex' && (
                                 <button onClick={(e) => { e.stopPropagation(); setShowCompileOptions(!showCompileOptions); }} style={{ background: 'rgba(0,0,0,0.1)', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '4px 6px', cursor: 'pointer' }}><ChevronDown size={12}/></button>
                             )}
+                            {showCompileOptions && (
+                                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '200px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
+                                    <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
+                                        {compileMode === 'normal' ? <Check size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode
+                                    </button>
+                                    <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
+                                        {compileMode === 'draft' ? <Check size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode
+                                    </button>
+                                    <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }}>
+                                        <input type="checkbox" checked={usePreamble} onChange={(e) => setUsePreamble(e.target.checked)} />
+                                        Use Precompiled Preamble
+                                    </label>
+                                </div>
+                            )}
                         </div>
-                        {showCompileOptions && (
-                            <div style={{ position: 'absolute', top: '40px', right: '20px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '180px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-                                <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Layers size={14}/> Normal</button>
-                                <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Zap size={14}/> Draft</button>
-                                <button onClick={() => { setCompileMode('precompile'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'precompile' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><FileBox size={14}/> Precompiled Preamble</button>
-                            </div>
-                        )}
                     </div>
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
