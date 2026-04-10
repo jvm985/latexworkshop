@@ -3,27 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, Plus, LogOut, Search, Clock, 
-  Trash2, Shield, Loader, Layers
+  Trash2, ExternalLink, Layout, RefreshCw
 } from 'lucide-react';
 
 const API_URL = '/api';
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState('');
+  const [name, setName] = useState('');
+  const [type, setType] = useState('latex');
   const [loading, setLoading] = useState(true);
-  const [showNew, setShowNew] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('latex');
+  const navigate = useNavigate();
   const token = localStorage.getItem('latex_token');
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   const fetchProjects = async () => {
     try {
-      const res = await axios.get(`${API_URL}/projects`, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
+      const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
       setProjects(res.data);
     } catch (e) {
       navigate('/login');
@@ -40,17 +37,10 @@ export default function Dashboard() {
     fetchProjects();
   }, [token]);
 
-  const createProject = async () => {
-    if (!newName) return;
-    try {
-      const res = await axios.post(`${API_URL}/projects`, 
-        { name: newName, type: newType }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      navigate(`/project/${res.data._id}`);
-    } catch (e) {
-      alert('Failed to create project.');
-    }
+  const create = async () => {
+    if (!name) return;
+    const res = await axios.post(`${API_URL}/projects`, { name, type }, { headers: { Authorization: `Bearer ${token}` } });
+    navigate(`/project/${res.data._id}`);
   };
 
   const deleteProject = async (id: string) => {
@@ -65,150 +55,107 @@ export default function Dashboard() {
     }
   };
 
-  const filteredProjects = projects.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredProjects = projects.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) return (
     <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
-      <Loader className="animate-spin" />
+      <RefreshCw className="animate-spin" />
     </div>
   );
 
   return (
-    <div style={{ background: '#1e1e1e', minHeight: '100vh', color: 'white', fontFamily: 'system-ui, sans-serif' }}>
-      <nav style={{ height: '64px', background: '#252526', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', borderBottom: '1px solid #333' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ background: '#0071e3', padding: '8px', borderRadius: '8px' }}>
-            <Layers color="white" size={24} />
-          </div>
-          <span style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.5px' }}>LaTeX Workshop</span>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: '#121212', color: 'white', fontFamily: '"Inter", sans-serif' }}>
+      <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
+          <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={18}/></div>
+          <span style={{ fontWeight: 800, fontSize: '16px' }}>Workshop</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        <nav style={{ flex: 1, padding: '20px 12px' }}>
+          <div style={{ background: '#282828', padding: '8px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', cursor: 'pointer' }}>
+            <FileText size={16} color="#0071e3"/> Projects
+          </div>
+        </nav>
+        <div style={{ padding: '20px', borderTop: '1px solid #282828', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: '#333', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user.name?.[0]}</div>
+          <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Logout"><LogOut size={16}/></button>
+        </div>
+      </aside>
+
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <header style={{ padding: '20px 40px', borderBottom: '1px solid #282828', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
-            <Search style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} size={16} />
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }}/>
             <input 
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search projects..." 
-              style={{ background: '#1e1e1e', border: '1px solid #333', padding: '10px 12px 10px 40px', borderRadius: '10px', color: 'white', width: '300px', outline: 'none', transition: 'border-color 0.2s' }}
+              style={{ background: '#181818', border: '1px solid #282828', color: 'white', padding: '8px 12px 8px 36px', borderRadius: '8px', width: '300px', outline: 'none', fontSize: '14px' }}
             />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>{user.name?.[0]}</div>
-              <button 
-                onClick={() => { localStorage.clear(); navigate('/login'); }}
-                style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <LogOut size={20} />
-              </button>
+          <div style={{ display: 'flex', gap: '8px', background: '#181818', borderRadius: '8px', border: '1px solid #282828', padding: '4px' }}>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 12px', width: '180px', outline: 'none', fontSize: '14px' }}/>
+            <select value={type} onChange={e => setType(e.target.value)} style={{ background: '#282828', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+              <option value="latex">LaTeX</option>
+              <option value="typst">Typst</option>
+              <option value="markdown">Markdown</option>
+            </select>
+            <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '4px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>Create</button>
           </div>
-        </div>
-      </nav>
+        </header>
 
-      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '48px 40px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px' }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '32px', fontWeight: 800 }}>Welcome back</h1>
-            <p style={{ color: '#888', marginTop: '8px' }}>You have {projects.length} projects in your workspace.</p>
-          </div>
-          <button 
-            onClick={() => setShowNew(true)}
-            style={{ background: '#0071e3', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', transition: 'transform 0.1s' }}
-          >
-            <Plus size={20} /> New Project
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-          {filteredProjects.map(project => (
-            <div 
-              key={project._id}
-              onClick={() => navigate(`/project/${project._id}`)}
-              style={{ background: '#252526', borderRadius: '20px', border: '1px solid #333', padding: '24px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = '#444'; e.currentTarget.style.transform = 'translateY(-4px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.transform = 'translateY(0)'; }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                <div style={{ background: project.type === 'latex' ? '#0071e322' : project.type === 'typst' ? '#28a74522' : '#ffc10722', padding: '12px', borderRadius: '14px' }}>
-                  <FileText color={project.type === 'latex' ? '#0071e3' : project.type === 'typst' ? '#28a745' : '#ffc107'} size={24} />
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <span style={{ fontSize: '10px', background: '#1e1e1e', padding: '4px 8px', borderRadius: '6px', color: '#888', fontWeight: 700, textTransform: 'uppercase' }}>{project.type}</span>
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); deleteProject(project._id); }}
-                        style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: '4px' }}
-                    >
-                        <Trash2 size={18} />
-                    </button>
-                </div>
-              </div>
-              
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>{project.name}</h3>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: '#666', fontSize: '13px', marginTop: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Clock size={14} />
-                  {new Date(project.lastModified).toLocaleDateString()}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Shield size={14} />
-                  {project.owner.email.split('@')[0]}
-                </div>
-              </div>
-            </div>
-          ))}
+        <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ color: '#666', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid #282828' }}>
+                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Project Name</th>
+                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Type</th>
+                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Owner</th>
+                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Last Modified</th>
+                <th style={{ padding: '12px 20px', width: '80px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProjects.map((p: any) => (
+                <tr 
+                  key={p._id} 
+                  onClick={() => navigate(`/project/${p._id}`)}
+                  style={{ borderBottom: '1px solid #1e1e1e', cursor: 'pointer', transition: 'background 0.1s' }}
+                  onMouseOver={e => e.currentTarget.style.background = '#181818'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <FileText size={18} color={p.type === 'typst' ? '#4ade80' : p.type === 'markdown' ? '#ffc107' : '#0071e3'}/>
+                      <span style={{ fontWeight: 500, fontSize: '15px' }}>{p.name}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: '16px 20px' }}>
+                    <span style={{ fontSize: '11px', background: '#222', color: '#888', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>{p.type.toUpperCase()}</span>
+                  </td>
+                  <td style={{ padding: '16px 20px', fontSize: '14px', color: '#aaa' }}>
+                    {p.owner.email === user.email ? 'You' : p.owner.name || p.owner.email}
+                  </td>
+                  <td style={{ padding: '16px 20px', fontSize: '14px', color: '#666' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={14}/> {new Date(p.lastModified).toLocaleDateString()}
+                    </div>
+                  </td>
+                  <td style={{ padding: '16px 20px' }}>
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); deleteProject(p._id); }}
+                            style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: '4px' }}
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                        <ExternalLink size={14} color="#333"/>
+                      </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </main>
-
-      {showNew && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
-          <div style={{ background: '#252526', width: '450px', borderRadius: '24px', border: '1px solid #333', padding: '40px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
-            <h2 style={{ margin: '0 0 24px 0', fontSize: '24px', fontWeight: 800 }}>Create New Project</h2>
-            
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', color: '#888', fontSize: '13px', marginBottom: '8px', fontWeight: 600 }}>Project Name</label>
-              <input 
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                placeholder="My awesome paper..."
-                autoFocus
-                style={{ width: '100%', background: '#1e1e1e', border: '1px solid #333', padding: '14px', borderRadius: '12px', color: 'white', outline: 'none', fontSize: '16px' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '32px' }}>
-              <label style={{ display: 'block', color: '#888', fontSize: '13px', marginBottom: '8px', fontWeight: 600 }}>Document Type</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                {['latex', 'typst', 'markdown'].map(t => (
-                  <button 
-                    key={t}
-                    onClick={() => setNewType(t)}
-                    style={{ background: newType === t ? '#0071e3' : '#1e1e1e', color: newType === t ? 'white' : '#888', border: '1px solid', borderColor: newType === t ? '#0071e3' : '#333', padding: '12px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, fontSize: '13px', textTransform: 'capitalize' }}
-                  >
-                    {t === 'latex' ? 'LaTeX' : t}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button 
-                onClick={() => setShowNew(false)}
-                style={{ flex: 1, background: '#333', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={createProject}
-                style={{ flex: 1, background: '#0071e3', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

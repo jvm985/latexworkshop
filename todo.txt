@@ -37,3 +37,4 @@ to do
 
 - voor latex projecten het compileermenu verschijnt op een verkeerde plek. preamble moet je aan en uit kunnen vinken. normal en draft zijn toggle: als de ene aan gaat, gaat de andere uit 
 
+- de drie compileermethoden duren even lang voor latex: er klopt iets niet
