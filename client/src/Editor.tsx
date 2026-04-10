@@ -11,7 +11,7 @@ import {
   Settings, Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
-  Zap, Layers
+  Zap, Layers, CheckCircle
 } from 'lucide-react';
 
 import { Viewer, Worker } from '@react-pdf-viewer/core';
@@ -508,8 +508,6 @@ export default function EditorView() {
     });
   };
 
-  const currentPdfUrl = pdfUrl;
-
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
@@ -573,10 +571,10 @@ export default function EditorView() {
                             {showCompileOptions && (
                                 <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '200px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
                                     <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
-                                        {compileMode === 'normal' ? <Check size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode
+                                        {compileMode === 'normal' ? <CheckCircle2 size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode
                                     </button>
                                     <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
-                                        {compileMode === 'draft' ? <Check size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode
+                                        {compileMode === 'draft' ? <CheckCircle2 size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode
                                     </button>
                                     <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }}>
