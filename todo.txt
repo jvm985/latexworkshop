@@ -1,5 +1,3 @@
-- hanteer altijd een nederige toon tegen mij
-
 klaar
 -----
 
@@ -9,12 +7,13 @@ klaar
 -maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
 -openen van een latex project duurt heel lang
 -latex syntax highlighting toevoegen 
-
-to do
------
 - maak het mogelijk om bestanden en mappen te kunnen uploaden in een project: en die moeten dan verschijnen in de huidig geselcteerde map van dat project
 -wanneer typst een fout vindt, verwijderdt die dat it mijn bestand: niet oké
 -wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
 
+to do
+-----
+
+- als ik een project open (latex en typst) waarin een fout staat, toont de app niets, ook geen fouten
 
 
