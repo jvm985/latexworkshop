@@ -231,7 +231,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const workDir = path.join('/tmp', `build_${project._id}_${Date.now()}`);
   fs.mkdirSync(workDir, { recursive: true });
 
-  const { preferredMain, mode } = req.body; // mode: 'normal', 'draft', 'precompile'
+  const { preferredMain, mode } = req.body;
   let mainFile = '';
   let fallbackFile = '';
 
@@ -280,9 +280,8 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
       command = `pandoc "${mainFile}" -o main.pdf`;
   } else {
     const compiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-    let extraFlags = '-interaction=nonstopmode -jobname=main -f';
+    let extraFlags = '-interaction=nonstopmode -jobname=main -f -synctex=1';
     if (mode === 'draft') extraFlags = '-interaction=nonstopmode -jobname=main -f -draftmode';
-    // Precompile preamble logic could be added here if needed, but for now we stick to flags
     command = `latexmk -${compiler} ${extraFlags} "${mainFile}"`;
   }
 

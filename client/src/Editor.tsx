@@ -8,7 +8,7 @@ import {
   Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
-  Settings, Download, Maximize2, LogOut, Loader2, Upload,
+  Settings, Download, Maximize2, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn, ZoomOut,
   List, ScrollText, Edit3, MoreVertical,
   Zap, FileBox, Layers
@@ -71,6 +71,7 @@ export default function EditorView() {
   const [pdfUrlA, setPdfUrlA] = useState<string | null>(null);
   const [pdfUrlB, setPdfUrlB] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const [pdfPage, setPdfPage] = useState(1);
   
   const [compiling, setCompiling] = useState(false);
   const [autoCompile, setAutoCompile] = useState(true);
@@ -95,6 +96,7 @@ export default function EditorView() {
   
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
   const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
+  const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
@@ -207,6 +209,18 @@ export default function EditorView() {
     } catch (e) { navigate('/'); }
   };
 
+  const convertProject = async () => {
+      if (!project) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
+      setCompiling(true);
+      try {
+          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+          fetchAll(true);
+      } catch(e) { alert('Conversion failed.'); }
+      finally { setCompiling(false); }
+  };
+
   useEffect(() => {
     if (!token) { navigate('/login'); return; }
     fetchAll(true);
@@ -250,6 +264,14 @@ export default function EditorView() {
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     
+    // Sync PDF page estimation
+    if (editorRef.current) {
+        const line = editorRef.current.getPosition().lineNumber;
+        const totalLines = editorRef.current.getModel().getLineCount();
+        const estimatedPage = Math.max(1, Math.ceil((line / totalLines) * 5)); // Very rough heuristic
+        setPdfPage(estimatedPage);
+    }
+
     if (autoCompile) {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
@@ -351,28 +373,16 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const copyFile = async (doc: any) => {
-      const newName = prompt('Enter new name:', doc.name + ' (copy)');
-      if (!newName) return;
-      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
-      fetchAll();
-  };
-
   const moveFile = async (docId: string, newPath: string) => {
       await axios.patch(`${API_URL}/projects/${id}/files/${docId}`, { path: newPath }, { headers: { Authorization: `Bearer ${token}` } });
       fetchAll();
   };
 
-  const convertProject = async () => {
-      if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll(true);
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
+  const copyFile = async (doc: any) => {
+      const newName = prompt('Enter new name:', doc.name + ' (copy)');
+      if (!newName) return;
+      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
   };
 
   const logout = () => {
@@ -432,6 +442,7 @@ export default function EditorView() {
 
   const onDrop = (e: React.DragEvent, targetNode: any) => {
       e.preventDefault();
+      setDragOverNode(null);
       const docId = e.dataTransfer.getData('docId');
       
       let newPath = "";
@@ -466,7 +477,13 @@ export default function EditorView() {
       const itemId = doc?._id || folderPath;
 
       return (
-        <div key={folderPath} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, item)}>
+        <div 
+            key={folderPath} 
+            onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} 
+            onDragLeave={() => setDragOverNode(null)}
+            onDrop={(e) => onDrop(e, item)}
+            style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}
+        >
           <div 
             onClick={() => switchDoc(item, folderPath)} 
             onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }}
@@ -620,10 +637,10 @@ export default function EditorView() {
                     </div>
                 ) : (
                     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
-                        {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader2 size={32} className="animate-spin" color="#0071e3"/></div>}
+                        {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
                         {(pdfUrlA || pdfUrlB) && <div style={{ position: 'absolute', top: 10, right: 20, zIndex: 10, display: 'flex', gap: '8px' }}><button onClick={() => window.open(currentPdfUrl || '', '_blank')} style={{ background: '#333', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }} title="Open in new tab"><Maximize2 size={16}/></button></div>}
-                        <iframe src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} />
-                        <iframe src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} />
+                        <iframe src={pdfUrlA ? `${pdfUrlA}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}&page=${pdfPage}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'a' ? 1 : 0, pointerEvents: activeBuffer === 'a' ? 'auto' : 'none' }} />
+                        <iframe src={pdfUrlB ? `${pdfUrlB}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&zoom=${zoom}&page=${pdfPage}` : 'about:blank'} style={{ width: '100%', height: '100%', border: 'none', background: '#2d2d2d', position: 'absolute', inset: 0, opacity: activeBuffer === 'b' ? 1 : 0, pointerEvents: activeBuffer === 'b' ? 'auto' : 'none' }} />
                         {!pdfUrlA && !pdfUrlB && !compiling && !logs && <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}><Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/><span>PDF Loading...</span></div>}
                     </div>
                 )}
@@ -633,7 +650,7 @@ export default function EditorView() {
       </main>
       {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}<button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></div>}
       {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
-      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
+      {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, Plus, LogOut, Search, Clock, 
-  Trash2, Shield, Layers, Loader2
+  Trash2, Shield, Loader, Layers
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -71,7 +71,7 @@ export default function Dashboard() {
 
   if (loading) return (
     <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
-      <Loader2 className="animate-spin" />
+      <Loader className="animate-spin" />
     </div>
   );
 
