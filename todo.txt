@@ -15,24 +15,25 @@ klaar
 - de uitlogknop linksonder is overbodig
 - de compileerknop bij latex moet boven de editor staan. voorzie ook de shortcut ctrl-enter om te compileren
 
+- in geopend project, boomstructuur: als ik op een item klik, zet je rechts een vertikale puntjes knop (...). als ik daar op klik, krijg ik een menu: hernoem, download, verwijder, dan een scheidingsstreep en dan nieuw bestand, nieuwe map, upload (bestand/map). die laatste drie creëren een nieuw bestand/map op dezelfde plaats als het bestand dat was geselecteerd, of in het geval een map was gesleecteerd: in die map. 
+- voorzie een knop om de laatste output van latex of typst te kunnen zien: laat de gebruiker kiezen tussen raw: alles, of geordend: waarbij jij de errors en fouten netjes oplijst, zonder overbodigheden
+- zorg ervoor dat de app heel uniform werkt voor de drie soorten projecten
+- geef voor alle drie de types boven de editor een knop voor compileren en een vinkje voor auto-compile
 
 to do
 -----
 
-- voorzie een eenvoudige pdf viewer. alleen in- en uitzoomen en downloaden is nodig. en ook springen naar de lijn van de editor, om de pdf te tonen waar de auteur aan het werken was in de editor.
+- voorzie een nieuwe eenvoudige pdf viewer. alleen in- en uitzoomen en downloaden is nodig. en ook springen naar de lijn van de editor, om de pdf te tonen waar de auteur aan het werken was in de editor.
 
-- in geopend project, boomstructuur: als ik op een item klik, zet je rechts een vertikale puntjes knop (...). als ik daar op klik, krijg ik een menu: hernoem, download, verwijder, dan een scheidingsstreep en dan nieuw bestand, nieuwe map, upload (bestand/map). die laatste drie creëren een nieuw bestand/map op dezelfde plaats als het bestand dat was geselecteerd, of in het geval een map was gesleecteerd: in die map.
-
+- in de boomstructuur: voorzie dat ik bestanden en mappen kan verslepen naar een andere plek in de boom, daarmee verplaats ik dat bestand
 
 - als ik een png , jpreg of om t even welk grafisch bestand open, moet je dat ook tonen op de plaats van de editor, net zoals wanneer je een tex bestand opent. je toont enkel de bestandsnaam nu
 
-- voorzie een knop om de laatste output van latex of typst te kunnen zien: laat de gebruiker kiezen tussen raw: alles, of geordend: waarbij jij de errors en fouten netjes oplijst, zonder overbodigheden
 
-- voorzie nu ook Markdown als type project, met alle functionaliteit als bij latex en typst. 
-- zorg ervoor dat de app heel uniform werkt voor de drie soorten projecten
+- voorzie nu ook Markdown als type project, met alle functionaliteit als bij latex en typst. ik zie dat niet bij het menu om nieuw project te maken.
 
-- geef voor alle drie de types boven de editor een knop voor compileren en een vinkje voor auto-compile
-- wanneer ik compileer (of auto compile) moet de pdf het stuk tonen waar de auteur mee bezig is
+- wanneer ik compileer (of auto compile) moet de pdf het stuk tonen waar de auteur mee bezig is, niet bovenaan springen
+
 - bij auto-compile:  geeft dikwijls fouten omdat er een haakje ontbreekt of zo. vind een manier om dan gewoon de pdf te laten zien, en dan ergens een icoontje dat aangeeft dat er een error bij de laatste compilatie was (rood/groen bolletje of zo). wanneer gebruiker op rood bolletje klikt, kmt hij bij de errors van de laatste compilatie, net hetzelfde als wanneer je op de knop compileren klikt en er zijn fouten gebeurd, dan toon je ook datzelfde foutenscherm (raw/opgeschoond)
 
 
