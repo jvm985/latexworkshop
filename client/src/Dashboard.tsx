@@ -3,9 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, Plus, LogOut, Search, Clock, 
-  Trash2, Share2, Shield, User as UserIcon,
-  ChevronRight, MoreVertical, Settings, RefreshCw,
-  FileCode, Layers
+  Trash2, Shield, RefreshCw, Layers
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -72,7 +70,7 @@ export default function Dashboard() {
 
   if (loading) return (
     <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
-      <Loader2 className="animate-spin" />
+      <RefreshCw className="animate-spin" />
     </div>
   );
 
@@ -209,8 +207,4 @@ export default function Dashboard() {
       )}
     </div>
   );
-}
-
-function Loader2({ className }: { className?: string }) {
-    return <RefreshCw className={className} />;
 }
