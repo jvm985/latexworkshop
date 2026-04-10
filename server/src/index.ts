@@ -132,6 +132,27 @@ app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   res.json(doc);
 });
 
+// Serve raw file content (for images/previews)
+app.get('/api/projects/:id/files/:fileId/raw', authenticate, async (req: any, res) => {
+    const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
+    if (!doc) return res.status(404).send('File not found');
+    
+    if (doc.isBinary && doc.binaryData) {
+        res.send(doc.binaryData);
+    } else {
+        res.send(doc.content);
+    }
+});
+
+app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
+    const doc = await Document.findOneAndUpdate(
+        { _id: req.params.fileId, project: req.params.id }, 
+        req.body, 
+        { new: true }
+    );
+    res.json(doc);
+});
+
 app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
     await Document.deleteOne({ _id: req.params.fileId, project: req.params.id });
     res.json({ success: true });
@@ -186,7 +207,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
         fs.writeFileSync(fullPath, doc.content);
     }
     
-    // Check if this is the preferred file from editor
     if (preferredMain && doc.name === preferredMain) {
         if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
         else if (project.type === 'latex' && doc.content.includes('\\documentclass')) mainFile = preferredMain;
@@ -226,7 +246,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
     const pdfPath = path.join(workDir, 'main.pdf');
     if (fs.existsSync(pdfPath)) {
       res.sendFile(pdfPath, () => {
-          // Cleanup workDir after a delay to ensure sendFile is done
           setTimeout(() => fs.rmSync(workDir, { recursive: true, force: true }), 5000);
       });
     } else {

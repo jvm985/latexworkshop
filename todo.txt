@@ -10,10 +10,21 @@ klaar
 - maak het mogelijk om bestanden en mappen te kunnen uploaden in een project: en die moeten dan verschijnen in de huidig geselcteerde map van dat project
 -wanneer typst een fout vindt, verwijderdt die dat it mijn bestand: niet oké
 -wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
+- als ik een project open (latex en typst) waarin een fout staat, toont de app niets, ook geen fouten
 
 to do
 -----
 
-- als ik een project open (latex en typst) waarin een fout staat, toont de app niets, ook geen fouten
+- voorzie een eenvoudige pdf viewer. alleen in- en uitzoomen en downloaden is nodig. en ook springen naar de lijn van de editor, om de pdf te tonen waar de auteur aan het werken was in de editor.
+- voorzie bij een open projhect een menu met : settings, delen, convrteren, ...
+- de uitlogknop linksonder is overbodig
+- in geopend project, boomstructuur: ik moet ook bestanden kunnen verplaatsen, verwijderen, kopieren: maak dit met een menuutje na rechtermuisklik
+- de compileerknop bij latex moet boven de editor staan. voorzie ook de shortcut ctrl-enter om te compileren
+- als ik een png , jpreg of om t even welk grafisch bestand open, moet je dat ook tonen op de plaats van de editor, net zoals wanneer je een tex bestand opent 
+- voorzie een knop om de laatste output van latex of typst te kunnen zien: laat de gebruiker kiezen tussen raw: alles, of geordend: waarbij jij de errors en fouten netjes oplijst, zonder overbodigheden
+- voorzie nu ook Markdown als type project, met alle functionaliteit als bij latex en typst. 
+- zorg ervoor dat de app heel uniform werkt voor de drie soorten projecten
+- geef voor alle drie de types boven de editor een knop voor compileren en een vinkje voor auto-compile
+
 
 
