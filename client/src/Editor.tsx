@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { zoomPlugin, RenderZoomProps } from '@react-pdf-viewer/zoom';
+import { zoomPlugin, RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
@@ -600,13 +600,13 @@ export default function EditorView() {
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <ZoomOut>
-                            {(props: RenderZoomProps) => (
-                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
+                            {({ onClick }: RenderZoomOutProps) => (
+                                <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
                             )}
                         </ZoomOut>
                         <ZoomIn>
-                            {(props: RenderZoomProps) => (
-                                <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
+                            {({ onClick }: RenderZoomInProps) => (
+                                <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
                             )}
                         </ZoomIn>
                     </div>
