@@ -144,7 +144,7 @@ export default function EditorView() {
               if (line.startsWith('! ')) {
                   let message = line.substring(2);
                   let lineNum = 0;
-                  for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+                  for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
                       const nextLine = lines[j];
                       const lineMatch = nextLine.match(/^l\.(\d+)/);
                       if (lineMatch) {
@@ -189,12 +189,14 @@ export default function EditorView() {
         reader.onload = () => {
           try {
             const result = JSON.parse(reader.result as string);
-            const rawLogs = result.logs || 'Compilation failed.';
+            const rawLogs = result.logs || 'Compilation failed (no logs returned from server).';
             setLogs(rawLogs);
             setParsedErrors(parseLogErrors(rawLogs, pType as any));
-          } catch(e) { setLogs('Compilation error.'); }
+          } catch(e) { setLogs('Compilation error (could not parse server response).'); }
         };
         reader.readAsText(err.response.data);
+      } else {
+          setLogs('Network error or server down.');
       }
     } finally { setCompiling(false); }
   };

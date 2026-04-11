@@ -271,17 +271,14 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         
         if (usePreamble) {
-            // Use mylatexformat correctly: ini mode to dump format
-            // We must use &pdflatex (or similar) to load the base format first
+            // Robust mylatexformat call
             const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
-            try {
-                await new Promise((resolve, reject) => {
-                    exec(dumpCmd, { cwd: workDir, env }, (err, stdout, stderr) => {
-                        if (err) console.error("Preamble dump failed:", stdout, stderr);
-                        resolve(true); // Continue even if dump fails, fallback to normal
-                    });
+            await new Promise((resolve) => {
+                exec(dumpCmd, { cwd: workDir, env }, (err, stdout, stderr) => {
+                    if (err) console.log("Preamble dump output:", stdout, stderr);
+                    resolve(true);
                 });
-            } catch(e) {}
+            });
         }
 
         if (mode === 'draft') {
@@ -300,9 +297,9 @@ const compileProject = async (project: any, documents: any[], options: any) => {
             const synctexPath = path.join(workDir, 'main.synctex.gz');
             const logPath = path.join(workDir, 'main.log');
             
-            let combinedLogs = stdout + "\n" + stderr;
+            let combinedLogs = `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
             if (fs.existsSync(logPath)) {
-                combinedLogs += "\n--- FULL LOG FILE ---\n" + fs.readFileSync(logPath, 'utf8');
+                combinedLogs += "\n--- FULL LATEX LOG ---\n" + fs.readFileSync(logPath, 'utf8');
             }
 
             if (fs.existsSync(pdfPath)) {
@@ -317,7 +314,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     });
 };
 
-app.post('/api/compile/:id', authenticate, async (req: any, res) => {
+app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
   
