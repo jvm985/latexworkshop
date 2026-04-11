@@ -5,7 +5,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -226,7 +226,6 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 const compileProject = async (project: any, documents: any[], options: any) => {
     const { preferredMain, mode, usePreamble } = options;
     
-    // Stable incremental path per project
     const workDir = path.join('/tmp', `workshop_project_${project._id}`);
     const cacheDir = path.join('/tmp', `workshop_cache_${project._id}`);
     
@@ -239,12 +238,10 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     for (const doc of documents) {
         const fullPath = path.join(workDir, doc.path, doc.name);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        
         const newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(doc.content);
         if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
             fs.writeFileSync(fullPath, newContent);
         }
-        
         if (preferredMain && doc.name === preferredMain) {
             if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
             else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
@@ -270,28 +267,17 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         
         if (usePreamble) {
-            const mainDoc = documents.find(d => d.name === mainFile);
-            if (mainDoc) {
-                const preambleEnd = mainDoc.content.indexOf('\\begin{document}');
-                if (preambleEnd !== -1) {
-                    const preamble = mainDoc.content.substring(0, preambleEnd);
-                    fs.writeFileSync(path.join(workDir, 'preamble.tex'), preamble + '\n\\begin{document}\n\\end{document}');
-                    // Precompile format if missing or not draft
-                    if (!fs.existsSync(path.join(workDir, 'preamble.fmt')) || mode !== 'draft') {
-                        await new Promise((resolve) => {
-                            exec(`${compiler} -ini -jobname="preamble" "&${compiler} preamble.tex\\dump"`, { cwd: workDir }, () => resolve(true));
-                        });
-                    }
-                }
-            }
+            // Use mylatexformat for real speedup
+            await new Promise((resolve) => {
+                const dumpCmd = `${compiler} -ini -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
+            });
         }
 
         if (mode === 'draft') {
-            // Fast single pass
             const fmtFlag = usePreamble ? '-fmt preamble' : '';
             command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname=main "${mainFile}"`;
         } else {
-            // Full convergence
             const latexOption = usePreamble ? '-latexoption="-fmt preamble"' : '';
             command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexOption} "${mainFile}"`;
         }
@@ -301,7 +287,6 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             const pdfPath = path.join(workDir, 'main.pdf');
             const synctexPath = path.join(workDir, 'main.synctex.gz');
-            
             if (fs.existsSync(pdfPath)) {
                 if (fs.existsSync(synctexPath)) {
                     fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
@@ -317,7 +302,6 @@ const compileProject = async (project: any, documents: any[], options: any) => {
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
-  
   const documents = await Document.find({ project: project._id, isFolder: false });
   try {
       const result: any = await compileProject(project, documents, req.body);
@@ -332,7 +316,6 @@ app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
     const { line, file } = req.query;
     const synctexFile = path.join('/tmp', `synctex_${req.params.id}.gz`);
     if (!fs.existsSync(synctexFile)) return res.status(404).send('SyncTeX file not found');
-
     const command = `synctex view -i ${line}:0:${file} -o dummy.pdf`;
     exec(command, { cwd: '/tmp' }, (error, stdout) => {
         if (error) return res.status(500).send('SyncTeX error');

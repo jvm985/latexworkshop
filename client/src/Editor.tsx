@@ -209,7 +209,7 @@ export default function EditorView() {
 
   const convertProject = async () => {
       if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
       setCompiling(true);
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
