@@ -226,7 +226,7 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 const compileProject = async (project: any, documents: any[], options: any) => {
     const { preferredMain, mode, usePreamble } = options;
     
-    // RAM-DISK Support (/dev/shm is a shared memory filesystem)
+    // RAM-DISK Support
     const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
     const workDir = path.join(baseDir, `workshop_project_${project._id}`);
     const cacheDir = path.join(baseDir, `workshop_cache_${project._id}`);
@@ -254,7 +254,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         if (doc.isMain && !mainFile) mainFile = doc.name;
         if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
         if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = doc.name;
-        if (project.type === 'latex' && !fallbackFile && doc.name.endsWith('.tex') && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
+        if (project.type === 'latex' && !fallbackFile && (doc.name.endsWith('.tex') || doc.name.endsWith('.cls') || doc.name.endsWith('.sty')) && doc.content.includes('\\documentclass')) fallbackFile = doc.name;
     }
 
     if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
@@ -264,7 +264,6 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
     if (project.type === 'typst') {
-        // True incremental via RAM-disk and persistent cache
         command = `typst compile "${mainFile}" main.pdf`;
     } else if (project.type === 'markdown') {
         command = `pandoc "${mainFile}" -o main.pdf`;
@@ -272,20 +271,26 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         
         if (usePreamble) {
-            // mylatexformat implementation
-            await new Promise((resolve) => {
-                const dumpCmd = `${compiler} -ini -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
-                exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
-            });
+            // Use mylatexformat correctly: ini mode to dump format
+            // We must use &pdflatex (or similar) to load the base format first
+            const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+            try {
+                await new Promise((resolve, reject) => {
+                    exec(dumpCmd, { cwd: workDir, env }, (err, stdout, stderr) => {
+                        if (err) console.error("Preamble dump failed:", stdout, stderr);
+                        resolve(true); // Continue even if dump fails, fallback to normal
+                    });
+                });
+            } catch(e) {}
         }
 
         if (mode === 'draft') {
-            const fmtFlag = usePreamble ? '-fmt preamble' : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname=main "${mainFile}"`;
+            const fmtFlag = (usePreamble && fs.existsSync(path.join(workDir, 'preamble.fmt'))) ? '-fmt preamble' : '';
+            command = `${compiler} -interaction=nonstopmode -synctex=1 -draftmode ${fmtFlag} -jobname=main "${mainFile}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-            const latexOption = usePreamble ? '-latexoption="-fmt preamble"' : '';
-            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexOption} "${mainFile}"`;
+            const fmtFlag = (usePreamble && fs.existsSync(path.join(workDir, 'preamble.fmt'))) ? '-latexoption="-fmt preamble"' : '';
+            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${fmtFlag} "${mainFile}"`;
         }
     }
 
@@ -293,14 +298,20 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             const pdfPath = path.join(workDir, 'main.pdf');
             const synctexPath = path.join(workDir, 'main.synctex.gz');
+            const logPath = path.join(workDir, 'main.log');
             
+            let combinedLogs = stdout + "\n" + stderr;
+            if (fs.existsSync(logPath)) {
+                combinedLogs += "\n--- FULL LOG FILE ---\n" + fs.readFileSync(logPath, 'utf8');
+            }
+
             if (fs.existsSync(pdfPath)) {
                 if (fs.existsSync(synctexPath)) {
                     fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
                 }
-                resolve({ pdfPath, logs: stdout + "\n" + stderr });
+                resolve({ pdfPath, logs: combinedLogs });
             } else {
-                reject({ error: 'Compilatie mislukt.', logs: stdout + "\n" + stderr });
+                reject({ error: 'Compilatie mislukt.', logs: combinedLogs });
             }
         });
     });

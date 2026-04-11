@@ -119,6 +119,7 @@ export default function EditorView() {
       const errors: any[] = [];
       if (!rawLogs) return errors;
       const lines = rawLogs.split('\n');
+      
       if (type === 'typst') {
           for (let i = 0; i < lines.length; i++) {
               const match = lines[i].match(/┌─\s+(.*?):(\d+):(\d+)/);
@@ -131,20 +132,36 @@ export default function EditorView() {
               }
           }
       } else {
+          // Robust LaTeX error parsing
           let currentFile = 'main.tex';
           for (let i = 0; i < lines.length; i++) {
-              const fileMatch = lines[i].match(/\(([^()]*?\.(?:tex|md|sty|cls))/);
+              const line = lines[i];
+              
+              // Track file context
+              const fileMatch = line.match(/\(([^()]*?\.(?:tex|sty|cls))/);
               if (fileMatch) {
                   const cleaned = fileMatch[1].replace(/^\.\//, '');
                   if (!cleaned.includes('/usr/')) currentFile = cleaned;
               }
-              const lineMatch = lines[i].match(/^l\.(\d+)/) || lines[i].match(/at line (\d+)/);
-              if (lineMatch) {
-                  errors.push({
-                      file: currentFile,
-                      line: parseInt(lineMatch[1]),
-                      message: lines[i-1]?.startsWith('!') ? lines[i-1].substring(1).trim() : 'Error'
-                  });
+
+              // Look for ! Error blocks
+              if (line.startsWith('! ')) {
+                  let message = line.substring(2);
+                  let lineNum = 0;
+                  
+                  // Look ahead for line number
+                  for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+                      const nextLine = lines[j];
+                      const lineMatch = nextLine.match(/^l\.(\d+)/);
+                      if (lineMatch) {
+                          lineNum = parseInt(lineMatch[1]);
+                          break;
+                      }
+                  }
+                  
+                  if (lineNum > 0) {
+                      errors.push({ file: currentFile, line: lineNum, message });
+                  }
               }
           }
       }
@@ -615,18 +632,18 @@ export default function EditorView() {
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', padding: '40px' }}>
                             {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw?t=${Date.now()}`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: '8px' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
                         </div>
-                    ) : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
+                    ) : <div style={{ height: '100%', display: 'center', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
                 </div>
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <ZoomOut>
+                        <ZoomOutComp>
                             {(props) => (
                                 <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
                             )}
-                        </ZoomOut>
+                        </ZoomOutComp>
                         <ZoomIn>
                             {(props) => (
                                 <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
