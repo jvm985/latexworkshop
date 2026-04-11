@@ -164,9 +164,11 @@ export default function EditorView() {
     setCompiling(true);
     const pType = typeOverride || project?.type || 'latex';
     try {
-      const currentDocName = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current)?.name : null;
+      const currentDoc = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current) : null;
       const res = await axios.post(`${API_URL}/compile/${id}`, {
-          preferredMain: currentDocName,
+          preferredMain: currentDoc?.name,
+          currentContent: currentDoc?.content,
+          currentFileId: currentDoc?._id,
           mode: compileMode,
           usePreamble: usePreamble
       }, { 
@@ -189,14 +191,12 @@ export default function EditorView() {
         reader.onload = () => {
           try {
             const result = JSON.parse(reader.result as string);
-            const rawLogs = result.logs || 'Compilation failed (no logs returned from server).';
+            const rawLogs = result.logs || 'Compilation failed.';
             setLogs(rawLogs);
             setParsedErrors(parseLogErrors(rawLogs, pType as any));
-          } catch(e) { setLogs('Compilation error (could not parse server response).'); }
+          } catch(e) { setLogs('Compilation error.'); }
         };
         reader.readAsText(err.response.data);
-      } else {
-          setLogs('Network error or server down.');
       }
     } finally { setCompiling(false); }
   };
@@ -216,7 +216,7 @@ export default function EditorView() {
 
   const convertProject = async () => {
       if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
       setCompiling(true);
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
