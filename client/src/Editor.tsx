@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { zoomPlugin, RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
+import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
