@@ -209,7 +209,7 @@ export default function EditorView() {
 
   const convertProject = async () => {
       if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
       setCompiling(true);
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
@@ -259,7 +259,7 @@ export default function EditorView() {
 
   const lastSyncRef = useRef(0);
   const syncToPdf = async () => {
-      if (!editorRef.current || !activeDoc || activeDoc.isFolder || activeDoc.isBinary || project?.type !== 'latex') return;
+      if (!editorRef.current || !activeDoc || activeDoc.isFolder || activeDoc.isBinary || (project?.type !== 'latex' && project?.type !== 'typst')) return;
       const now = Date.now();
       if (now - lastSyncRef.current < 1500) return;
       lastSyncRef.current = now;

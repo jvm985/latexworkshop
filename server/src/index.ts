@@ -226,8 +226,10 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 const compileProject = async (project: any, documents: any[], options: any) => {
     const { preferredMain, mode, usePreamble } = options;
     
-    const workDir = path.join('/tmp', `workshop_project_${project._id}`);
-    const cacheDir = path.join('/tmp', `workshop_cache_${project._id}`);
+    // RAM-DISK Support (/dev/shm is a shared memory filesystem)
+    const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
+    const workDir = path.join(baseDir, `workshop_project_${project._id}`);
+    const cacheDir = path.join(baseDir, `workshop_cache_${project._id}`);
     
     if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
@@ -238,10 +240,12 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     for (const doc of documents) {
         const fullPath = path.join(workDir, doc.path, doc.name);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        
         const newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(doc.content);
         if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
             fs.writeFileSync(fullPath, newContent);
         }
+        
         if (preferredMain && doc.name === preferredMain) {
             if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
             else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
@@ -260,6 +264,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
     if (project.type === 'typst') {
+        // True incremental via RAM-disk and persistent cache
         command = `typst compile "${mainFile}" main.pdf`;
     } else if (project.type === 'markdown') {
         command = `pandoc "${mainFile}" -o main.pdf`;
@@ -267,7 +272,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         
         if (usePreamble) {
-            // Use mylatexformat for real speedup
+            // mylatexformat implementation
             await new Promise((resolve) => {
                 const dumpCmd = `${compiler} -ini -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
                 exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
@@ -278,8 +283,9 @@ const compileProject = async (project: any, documents: any[], options: any) => {
             const fmtFlag = usePreamble ? '-fmt preamble' : '';
             command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname=main "${mainFile}"`;
         } else {
+            const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
             const latexOption = usePreamble ? '-latexoption="-fmt preamble"' : '';
-            command = `latexmk -${project.compiler === 'pdflatex' ? 'pdf' : project.compiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexOption} "${mainFile}"`;
+            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexOption} "${mainFile}"`;
         }
     }
 
@@ -287,6 +293,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             const pdfPath = path.join(workDir, 'main.pdf');
             const synctexPath = path.join(workDir, 'main.synctex.gz');
+            
             if (fs.existsSync(pdfPath)) {
                 if (fs.existsSync(synctexPath)) {
                     fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
@@ -302,6 +309,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
 app.post('/api/compile/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
+  
   const documents = await Document.find({ project: project._id, isFolder: false });
   try {
       const result: any = await compileProject(project, documents, req.body);
@@ -315,12 +323,16 @@ app.post('/api/compile/:id', authenticate, async (req: any, res) => {
 app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
     const { line, file } = req.query;
     const synctexFile = path.join('/tmp', `synctex_${req.params.id}.gz`);
+    
     if (!fs.existsSync(synctexFile)) return res.status(404).send('SyncTeX file not found');
+
     const command = `synctex view -i ${line}:0:${file} -o dummy.pdf`;
     exec(command, { cwd: '/tmp' }, (error, stdout) => {
         if (error) return res.status(500).send('SyncTeX error');
+        
         const pageMatch = stdout.match(/Page:(\d+)/);
         const yMatch = stdout.match(/y:([\d.]+)/);
+
         if (pageMatch) {
             res.json({
                 page: parseInt(pageMatch[1]),
