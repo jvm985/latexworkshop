@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import { zoomPlugin, RenderZoomProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
@@ -132,24 +132,17 @@ export default function EditorView() {
               }
           }
       } else {
-          // Robust LaTeX error parsing
           let currentFile = 'main.tex';
           for (let i = 0; i < lines.length; i++) {
               const line = lines[i];
-              
-              // Track file context
               const fileMatch = line.match(/\(([^()]*?\.(?:tex|sty|cls))/);
               if (fileMatch) {
                   const cleaned = fileMatch[1].replace(/^\.\//, '');
                   if (!cleaned.includes('/usr/')) currentFile = cleaned;
               }
-
-              // Look for ! Error blocks
               if (line.startsWith('! ')) {
                   let message = line.substring(2);
                   let lineNum = 0;
-                  
-                  // Look ahead for line number
                   for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
                       const nextLine = lines[j];
                       const lineMatch = nextLine.match(/^l\.(\d+)/);
@@ -158,10 +151,7 @@ export default function EditorView() {
                           break;
                       }
                   }
-                  
-                  if (lineNum > 0) {
-                      errors.push({ file: currentFile, line: lineNum, message });
-                  }
+                  if (lineNum > 0) errors.push({ file: currentFile, line: lineNum, message });
               }
           }
       }
@@ -186,7 +176,6 @@ export default function EditorView() {
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       setPdfUrl(url);
-      
       setLogs(null);
       setParsedErrors([]);
       setLastStatus('success');
@@ -194,7 +183,6 @@ export default function EditorView() {
     } catch (err: any) {
       setLastStatus('error');
       if (!isAutoMode) setShowErrorView(true);
-      
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -215,7 +203,6 @@ export default function EditorView() {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(res.data.project);
       setDocuments(res.data.documents);
-      
       if (res.data.documents.length > 0 && !activeDocIdRef.current) {
         const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ' || d.name === 'main.md') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         switchDoc(main);
@@ -226,7 +213,7 @@ export default function EditorView() {
 
   const convertProject = async () => {
       if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
+      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : 'LaTeX'}?`)) return;
       setCompiling(true);
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
@@ -259,7 +246,6 @@ export default function EditorView() {
     if (!docId || !socketRef.current || activeDoc.isBinary || activeDoc.isFolder) return;
     const socket = socketRef.current;
     socket.emit('join-document', docId);
-    
     const onUpdate = (content: string) => {
       if (activeDocIdRef.current === docId) {
         setActiveDoc((prev: any) => (prev?._id === docId ? { ...prev, content } : prev));
@@ -267,7 +253,6 @@ export default function EditorView() {
       }
     };
     socket.on('document-updated', onUpdate);
-    
     return () => {
       socket.emit('leave-document', docId);
       socket.off('document-updated', onUpdate);
@@ -280,26 +265,21 @@ export default function EditorView() {
       const now = Date.now();
       if (now - lastSyncRef.current < 1500) return;
       lastSyncRef.current = now;
-
       const position = editorRef.current.getPosition();
       try {
           const res = await axios.get(`${API_URL}/projects/${id}/synctex`, {
               params: { line: position.lineNumber, file: activeDoc.name },
               headers: { Authorization: `Bearer ${token}` }
           });
-          if (res.data.page && viewerInstanceRef.current) {
-              viewerInstanceRef.current.jumpToPage(res.data.page - 1);
-          }
-      } catch (e) { /* silent fail */ }
+          if (res.data.page && viewerInstanceRef.current) viewerInstanceRef.current.jumpToPage(res.data.page - 1);
+      } catch (e) {}
   };
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
-    
     syncToPdf();
-
     if (autoCompile) {
       if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
       compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
@@ -354,12 +334,10 @@ export default function EditorView() {
   const addFile = async (isFolder: boolean, targetDoc?: any) => {
     const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
     if (!name) return;
-    
     let path = "";
     const base = targetDoc || activeDoc;
     if (base && base.isFolder) path = base.path + base.name + "/";
     else if (base && base.path) path = base.path;
-
     await axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder, path }, { headers: { Authorization: `Bearer ${token}` } });
     fetchAll();
   };
@@ -367,12 +345,10 @@ export default function EditorView() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false, targetDoc?: any) => {
       const files = e.target.files;
       if (!files) return;
-      
       let basePath = "";
       const base = targetDoc || activeDoc;
       if (base && base.isFolder) basePath = base.path + base.name + "/";
       else if (base && base.path) basePath = base.path;
-
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
           const relativePath = (file as any).webkitRelativePath || "";
@@ -472,7 +448,6 @@ export default function EditorView() {
       e.preventDefault();
       setDragOverNode(null);
       const docId = e.dataTransfer.getData('docId');
-      
       let newPath = "";
       if (targetNode._isFolder) {
           newPath = (targetNode._path || "") + (targetNode._name ? targetNode._name + "/" : "");
@@ -481,7 +456,6 @@ export default function EditorView() {
       } else {
           newPath = targetNode.path;
       }
-
       if (docId) moveFile(docId, newPath);
   };
 
@@ -503,29 +477,15 @@ export default function EditorView() {
       const isExpanded = expandedFolders[folderPath];
       const doc = isFolderNode ? item._doc : item;
       const itemId = doc?._id || folderPath;
-
       return (
-        <div 
-            key={folderPath} 
-            onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} 
-            onDragLeave={() => setDragOverNode(null)}
-            onDrop={(e) => onDrop(e, item)}
-            style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}
-        >
-          <div 
-            onClick={() => switchDoc(item, folderPath)} 
-            onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }}
-            draggable={!!doc}
-            onDragStart={(e) => onDragStart(e, doc)}
-            style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between', position: 'relative' }}
-          >
+        <div key={folderPath} onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} onDragLeave={() => setDragOverNode(null)} onDrop={(e) => onDrop(e, item)} style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}>
+          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} draggable={!!doc} onDragStart={(e) => onDragStart(e, doc)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between', position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : (doc?.isBinary ? <ImageIcon size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>)}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
                 {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
-            
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <button onClick={(e) => { e.stopPropagation(); setActiveItemMenu(activeItemMenu === itemId ? null : itemId); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: '2px' }}><MoreVertical size={14}/></button>
                 {activeItemMenu === itemId && (
@@ -632,20 +592,20 @@ export default function EditorView() {
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', padding: '40px' }}>
                             {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw?t=${Date.now()}`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: '8px' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
                         </div>
-                    ) : <div style={{ height: '100%', display: 'center', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
+                    ) : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>Select a file.</div>}
                 </div>
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <ZoomOutComp>
-                            {(props) => (
+                        <ZoomOut>
+                            {(props: RenderZoomProps) => (
                                 <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
                             )}
-                        </ZoomOutComp>
+                        </ZoomOut>
                         <ZoomIn>
-                            {(props) => (
+                            {(props: RenderZoomProps) => (
                                 <button onClick={props.onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
                             )}
                         </ZoomIn>
