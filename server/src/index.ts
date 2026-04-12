@@ -278,23 +278,25 @@ export const compileProject = async (project: any, documents: any[], options: an
         };
     }
 
-    // Use a fixed job name internally for consistency and to avoid filename issues
+    // Use a fixed job name internally for consistency
     const jobName = '__main__';
-    const synctexPath = path.join(workDir, `${jobName}.synctex.gz`);
-    const logPath = path.join(workDir, `${jobName}.log`);
-    const actualPdfPath = path.join(workDir, `${jobName}.pdf`);
-
-    // Clean up old output files for this specific job name
-    if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-    if (fs.existsSync(actualPdfPath)) fs.unlinkSync(actualPdfPath);
-    if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
-    if (fs.existsSync(synctexPath)) fs.unlinkSync(synctexPath);
-
-    // Prepare compilation target in the root of workDir
+    const mainDir = path.dirname(mainFile);
+    const compileDir = path.join(workDir, mainDir);
     const ext = path.extname(mainFile);
     const compilationTarget = `${jobName}${ext}`;
-    const targetPath = path.join(workDir, compilationTarget);
-    
+    const targetPath = path.join(compileDir, compilationTarget);
+
+    const absLogPath = path.join(compileDir, `${jobName}.log`);
+    const absSynctexPath = path.join(compileDir, `${jobName}.synctex.gz`);
+    const absActualPdfPath = path.join(compileDir, `${jobName}.pdf`);
+
+    // Clean up old output files
+    if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+    if (fs.existsSync(absActualPdfPath)) fs.unlinkSync(absActualPdfPath);
+    if (fs.existsSync(absLogPath)) fs.unlinkSync(absLogPath);
+    if (fs.existsSync(absSynctexPath)) fs.unlinkSync(absSynctexPath);
+
+    // Prepare compilation target in the same directory as the original main file to preserve relative paths
     let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
     if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
         targetContent = targetContent.replace(/\\begin\{document\}/, '\\csname endpreamble\\endcsname\n\\begin{document}');
@@ -305,12 +307,12 @@ export const compileProject = async (project: any, documents: any[], options: an
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
     if (project.type === 'typst') {
-        command = `typst compile "${compilationTarget}" "${actualPdfPath}"`;
+        command = `typst compile "${compilationTarget}" "${absActualPdfPath}"`;
     } else if (project.type === 'markdown') {
-        command = `pandoc "${compilationTarget}" -o "${actualPdfPath}"`;
+        command = `pandoc "${compilationTarget}" -o "${absActualPdfPath}"`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const fmtPath = path.join(workDir, `${jobName}.fmt`);
+        const fmtPath = path.join(compileDir, `${jobName}.fmt`);
         
         if (usePreamble) {
             let shouldRegenerate = !fs.existsSync(fmtPath);
@@ -322,7 +324,7 @@ export const compileProject = async (project: any, documents: any[], options: an
             if (shouldRegenerate) {
                 const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" mylatexformat.ltx "${compilationTarget}"`;
                 await new Promise((resolve) => {
-                    exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
+                    exec(dumpCmd, { cwd: compileDir, env }, () => resolve(true));
                 });
             }
         }
@@ -340,21 +342,21 @@ export const compileProject = async (project: any, documents: any[], options: an
     }
 
     return new Promise((resolve, reject) => {
-        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
+        exec(command, { cwd: compileDir, timeout: 60000, env }, (error, stdout, stderr) => {
             let combinedLogs = "";
             if (error) {
                 combinedLogs += `--- EXECUTION ERROR ---\n${error.message}\n\n`;
             }
             combinedLogs += `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
             
-            if (fs.existsSync(logPath)) {
-                combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(logPath, 'utf8');
+            if (fs.existsSync(absLogPath)) {
+                combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(absLogPath, 'utf8');
             }
 
-            if (fs.existsSync(actualPdfPath)) {
-                if (actualPdfPath !== pdfPath) fs.renameSync(actualPdfPath, pdfPath);
-                if (fs.existsSync(synctexPath)) {
-                    fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
+            if (fs.existsSync(absActualPdfPath)) {
+                fs.renameSync(absActualPdfPath, pdfPath);
+                if (fs.existsSync(absSynctexPath)) {
+                    fs.copyFileSync(absSynctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
                 }
                 resolve({ pdfPath, logs: combinedLogs });
             } else {
