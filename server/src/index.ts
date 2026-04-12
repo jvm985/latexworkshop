@@ -443,7 +443,6 @@ const cleanupOldProjects = () => {
 setInterval(cleanupOldProjects, 60 * 60 * 1000); // Run every hour
 cleanupOldProjects(); // Run once at start
 
-const isMainModule = import.meta.url === `file://${process.argv[1]}`;
-if (isMainModule || process.env.NODE_ENV !== 'test_compile') {
+if (!process.env.NO_LISTEN) {
     httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
 }
