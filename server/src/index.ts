@@ -223,7 +223,7 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 });
 
 // --- COMPILATION ENGINE ---
-const compileProject = async (project: any, documents: any[], options: any) => {
+export const compileProject = async (project: any, documents: any[], options: any) => {
     const { preferredMain, mode, usePreamble, currentContent, currentFileId } = options;
     
     // RAM-DISK Support
@@ -443,4 +443,7 @@ const cleanupOldProjects = () => {
 setInterval(cleanupOldProjects, 60 * 60 * 1000); // Run every hour
 cleanupOldProjects(); // Run once at start
 
-httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule || process.env.NODE_ENV !== 'test_compile') {
+    httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
+}
