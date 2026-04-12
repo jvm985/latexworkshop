@@ -48,6 +48,8 @@ async function run() {
         const result = await compileProject(project, documents, options);
         console.log("✅ SUCCESS");
         console.log("PDF Path:", result.pdfPath);
+        console.log("Logs:");
+        console.log(result.logs);
         process.exit(0);
     } catch (err) {
         console.log("❌ FAILED");
