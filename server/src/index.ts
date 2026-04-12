@@ -302,7 +302,10 @@ export const compileProject = async (project: any, documents: any[], options: an
         // Find a safe spot for endpreamble: BEFORE packages that load native fonts or any input/include
         const problematicRegex = /(\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{)/i;
         
-        const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n\\endpreamble\n';
+        // Add safety definition at the very top (mylatexformat ignores things before \documentclass)
+        targetContent = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n' + targetContent;
+
+        const marker = '\n\\endpreamble\n';
         
         if (problematicRegex.test(targetContent)) {
             targetContent = targetContent.replace(problematicRegex, `${marker}$1`);
