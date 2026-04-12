@@ -309,8 +309,8 @@ export const compileProject = async (project: any, documents: any[], options: an
         }
 
         if (insertIndex !== -1) {
-            // Use literal \endpreamble but define it as \relax if not already defined (by mylatexformat)
-            const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\\endpreamble\n';
+            // Use literal \endpreamble on its own line
+            const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n\\endpreamble\n';
             targetContent = targetContent.slice(0, insertIndex) + marker + targetContent.slice(insertIndex);
         }
     }
