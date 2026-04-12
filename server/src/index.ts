@@ -341,7 +341,12 @@ export const compileProject = async (project: any, documents: any[], options: an
                 const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
                 await new Promise((resolve) => {
                     exec(dumpCmd, { cwd: compileDir, env }, (error, stdout, stderr) => {
-                        if (error) console.error('Preamble dump failed:', stderr);
+                        if (error) {
+                            console.error('Preamble dump failed!');
+                            console.error('Command:', dumpCmd);
+                            console.error('STDOUT:', stdout);
+                            console.error('STDERR:', stderr);
+                        }
                         resolve(true);
                     });
                 });
