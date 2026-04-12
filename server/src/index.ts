@@ -250,17 +250,6 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const contentToUse = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
         let newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(contentToUse || '');
         
-        // Special handling for preamble marker to prevent unnecessary re-writes
-        if (usePreamble && (preferredMain && doc.name === preferredMain || doc.isMain)) {
-            const contentStr = newContent.toString();
-            if (!contentStr.includes('endpreamble')) {
-                const beginDocIndex = contentStr.indexOf('\\begin{document}');
-                if (beginDocIndex !== -1) {
-                    newContent = Buffer.from(contentStr.slice(0, beginDocIndex) + '\\csname endpreamble\\endcsname\n' + contentStr.slice(beginDocIndex));
-                }
-            }
-        }
-
         if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
             fs.writeFileSync(fullPath, newContent);
         }
@@ -269,15 +258,16 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const stats = fs.statSync(fullPath);
         if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
         
+        const relPath = path.join(doc.path, doc.name);
         if (preferredMain && doc.name === preferredMain) {
-            if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
-            else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = preferredMain;
-            else if (project.type === 'latex' && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) mainFile = preferredMain;
+            if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = relPath;
+            else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = relPath;
+            else if (project.type === 'latex' && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) mainFile = relPath;
         }
-        if (doc.isMain && !mainFile) mainFile = doc.name;
-        if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = doc.name;
-        if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = doc.name;
-        if (project.type === 'latex' && !fallbackFile && (doc.name.endsWith('.tex') || doc.name.endsWith('.cls') || doc.name.endsWith('.sty')) && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) fallbackFile = doc.name;
+        if (doc.isMain && !mainFile) mainFile = relPath;
+        if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = relPath;
+        if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = relPath;
+        if (project.type === 'latex' && !fallbackFile && (doc.name.endsWith('.tex') || doc.name.endsWith('.cls') || doc.name.endsWith('.sty')) && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) fallbackFile = relPath;
     }
 
     if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
@@ -288,18 +278,36 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         };
     }
 
-    const jobName = path.parse(mainFile).name || 'main';
+    // Use a fixed job name internally for consistency and to avoid filename issues
+    const jobName = '__main__';
     const synctexPath = path.join(workDir, `${jobName}.synctex.gz`);
     const logPath = path.join(workDir, `${jobName}.log`);
     const actualPdfPath = path.join(workDir, `${jobName}.pdf`);
+
+    // Clean up old output files for this specific job name
+    if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+    if (fs.existsSync(actualPdfPath)) fs.unlinkSync(actualPdfPath);
+    if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
+    if (fs.existsSync(synctexPath)) fs.unlinkSync(synctexPath);
+
+    // Prepare compilation target in the root of workDir
+    const ext = path.extname(mainFile);
+    const compilationTarget = `${jobName}${ext}`;
+    const targetPath = path.join(workDir, compilationTarget);
+    
+    let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
+    if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
+        targetContent = targetContent.replace(/\\begin\{document\}/, '\\csname endpreamble\\endcsname\n\\begin{document}');
+    }
+    fs.writeFileSync(targetPath, targetContent);
 
     let command = '';
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
     if (project.type === 'typst') {
-        command = `typst compile "${mainFile}" main.pdf`;
+        command = `typst compile "${compilationTarget}" main.pdf`;
     } else if (project.type === 'markdown') {
-        command = `pandoc "${mainFile}" -o main.pdf`;
+        command = `pandoc "${compilationTarget}" -o main.pdf`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         const fmtPath = path.join(workDir, `${jobName}.fmt`);
@@ -308,12 +316,11 @@ const compileProject = async (project: any, documents: any[], options: any) => {
             let shouldRegenerate = !fs.existsSync(fmtPath);
             if (!shouldRegenerate) {
                 const fmtStats = fs.statSync(fmtPath);
-                // Regenerate if ANY file is newer than the format file
                 if (latestModTime > fmtStats.mtimeMs) shouldRegenerate = true;
             }
 
             if (shouldRegenerate) {
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" mylatexformat.ltx "${compilationTarget}"`;
                 await new Promise((resolve) => {
                     exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
                 });
@@ -324,12 +331,11 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         if (mode === 'draft') {
             const fmtOption = fmtFlag ? `-fmt "${jobName}"` : '';
             const draftFlag = (compiler === 'pdflatex' || compiler === 'lualatex') ? '-draftmode' : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname="${jobName}" "${mainFile}"`;
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname="${jobName}" "${compilationTarget}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-            // latexmk needs to be told how to use the custom format
             const latexmkFmt = fmtFlag ? `-latexoption="-fmt ${jobName}"` : '';
-            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
+            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`;
         }
     }
 
