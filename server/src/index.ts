@@ -159,10 +159,20 @@ export const compileProject = async (project: any, documents: any[], options: an
     }
 
     let command = '';
-    const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
+    const runId = Math.random().toString(36).substring(7);
+    const runCacheDir = path.join(workDir, `rc_${runId}`);
+    fs.mkdirSync(runCacheDir, { recursive: true });
+    
+    // Symlink persistent assets to force fresh document evaluation without re-downloading packages
+    ['packages', 'fonts'].forEach(sub => {
+        const src = path.join(cacheDir, sub);
+        if (!fs.existsSync(src)) fs.mkdirSync(src, { recursive: true });
+        try { fs.symlinkSync(src, path.join(runCacheDir, sub)); } catch(e) {}
+    });
+
+    const env = { ...process.env, TYPST_CACHE_DIR: runCacheDir };
 
     if (project.type === 'typst') {
-        // Output directly to output.pdf in the root of workDir for simplicity
         command = `typst compile "${mainFile}" "output.pdf"`;
     } else if (project.type === 'markdown') {
         command = `pandoc "${mainFile}" -o "output.pdf"`;
@@ -201,6 +211,9 @@ export const compileProject = async (project: any, documents: any[], options: an
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
             if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
+
+            // Cleanup run-specific cache
+            try { fs.rmSync(runCacheDir, { recursive: true, force: true }); } catch (e) {}
 
             // Success detection
             const producedPdf = (project.type === 'latex') ? absActualPdfPath : finalPdf;
