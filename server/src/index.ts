@@ -99,6 +99,7 @@ export const compileProject = async (project: any, documents: any[], options: an
     let mainFile = '';
     let latestModTime = 0;
 
+    // 1. Force write all files to disk to ensure we have the latest version
     for (const doc of documents) {
         if (doc.isFolder) continue;
         const fullPath = path.join(workDir, doc.path, doc.name);
@@ -107,9 +108,7 @@ export const compileProject = async (project: any, documents: any[], options: an
         const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
         const data = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(content || '');
         
-        if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(data)) {
-            fs.writeFileSync(fullPath, data);
-        }
+        fs.writeFileSync(fullPath, data);
         
         const stats = fs.statSync(fullPath);
         if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
@@ -132,14 +131,14 @@ export const compileProject = async (project: any, documents: any[], options: an
     const absActualPdfPath = path.join(workDir, path.dirname(mainFile), `${jobName}.pdf`);
     const finalPdf = path.join(workDir, 'output.pdf');
 
-    // Clean old artifacts
+    // 2. Clean old artifacts BEFORE compilation
     [finalPdf, absActualPdfPath, absLogPath, 
      path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`),
      path.join(workDir, path.dirname(mainFile), `${jobName}.fdb_latexmk`),
      path.join(workDir, path.dirname(mainFile), `${jobName}.fls`)
     ].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
 
-    // Preamble Injection
+    // 3. Preamble Injection (LaTeX only)
     if (project.type === 'latex' && usePreamble) {
         let content = fs.readFileSync(targetPath, 'utf8');
         if (!content.includes('endpreamble')) {
@@ -153,9 +152,10 @@ export const compileProject = async (project: any, documents: any[], options: an
     const env = { ...process.env, TYPST_CACHE_DIR: path.join(baseDir, `cache_${project._id}`) };
 
     if (project.type === 'typst') {
-        command = `typst compile "${mainFile}" "${absActualPdfPath}"`;
+        // Typst should output to a fixed path we can find easily
+        command = `typst compile "${mainFile}" "output.pdf"`;
     } else if (project.type === 'markdown') {
-        command = `pandoc "${mainFile}" -o "${absActualPdfPath}"`;
+        command = `pandoc "${mainFile}" -o "output.pdf"`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         const fmtName = `${jobName}_${compiler}`;
@@ -186,16 +186,22 @@ export const compileProject = async (project: any, documents: any[], options: an
         }
     }
 
+    // 4. Execute
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
             if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
 
-            // Check for common 'empty document' indicators in logs (LaTeX specific)
+            // Success detection logic
             const isEmpty = project.type === 'latex' && (logs.includes("No pages of output") || logs.includes("Output written on") === false);
+            
+            // For Typst/Markdown, the PDF is always named 'output.pdf' in workDir root
+            const producedPdf = (project.type === 'latex') ? absActualPdfPath : finalPdf;
 
-            if (fs.existsSync(absActualPdfPath)) {
-                if (absActualPdfPath !== finalPdf) fs.renameSync(absActualPdfPath, finalPdf);
+            if (fs.existsSync(producedPdf)) {
+                if (producedPdf !== finalPdf) fs.renameSync(producedPdf, finalPdf);
+                
+                // SyncTeX support
                 const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
                 if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
                 
@@ -205,7 +211,7 @@ export const compileProject = async (project: any, documents: any[], options: an
                 resolve({ pdfPath: finalPdf, logs });
             } else {
                 if (isEmpty) {
-                    reject({ error: 'Geen pagina\'s gegenereerd.', logs: "Fout: Het document is leeg. Dit gebeurt vaak als \\includeonly gebruikt wordt voor bestanden die niet bestaan of uitgeschakeld zijn.\n\n" + logs });
+                    reject({ error: 'Geen pagina\'s gegenereerd.', logs: "Fout: Het document is leeg. Controleer je LaTeX code.\n\n" + logs });
                 } else {
                     reject({ error: 'Compilatie mislukt', logs });
                 }
@@ -348,7 +354,7 @@ const cleanup = () => {
     const dirs = fs.readdirSync('/tmp');
     const now = Date.now();
     for (const dir of dirs) {
-        if (dir.startsWith('latexworkshop_')) {
+        if (dir.startsWith('latexworkshop_') || dir.startsWith('cache_')) {
             const p = path.join('/tmp', dir);
             try {
                 if (now - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true });
