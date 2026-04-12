@@ -300,18 +300,14 @@ export const compileProject = async (project: any, documents: any[], options: an
     let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
     if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
         // Find a safe spot for endpreamble: BEFORE packages that load native fonts or any input/include
-        const problematicRegex = /\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{/i;
+        const problematicRegex = /(\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{)/i;
         
-        let insertIndex = targetContent.indexOf('\\begin{document}');
-        const match = targetContent.match(problematicRegex);
-        if (match && match.index! < insertIndex) {
-            insertIndex = match.index!;
-        }
-
-        if (insertIndex !== -1) {
-            // Use literal \endpreamble on its own line
-            const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n\\endpreamble\n';
-            targetContent = targetContent.slice(0, insertIndex) + marker + targetContent.slice(insertIndex);
+        const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n\\endpreamble\n';
+        
+        if (problematicRegex.test(targetContent)) {
+            targetContent = targetContent.replace(problematicRegex, `${marker}$1`);
+        } else {
+            targetContent = targetContent.replace(/\\begin\s*\{document\}/i, `${marker}\\begin{document}`);
         }
     }
     console.log('--- TARGET CONTENT HEAD ---');
