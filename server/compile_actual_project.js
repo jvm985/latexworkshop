@@ -51,9 +51,11 @@ async function run() {
         process.exit(0);
     } catch (err) {
         console.log("❌ COMPILATION FAILED!");
-        console.log("Error:", err.error);
-        console.log("Logs:");
-        console.log(err.logs);
+        console.log("Full error object:", JSON.stringify(err, null, 2));
+        if (err.error) console.log("Error:", err.error);
+        if (err.logs) console.log("Logs:", err.logs);
+        if (err.message) console.log("Message:", err.message);
+        if (err.stack) console.log("Stack:", err.stack);
         process.exit(1);
     }
 }
