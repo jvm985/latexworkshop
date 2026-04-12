@@ -315,7 +315,8 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? '&preamble' : '';
         if (mode === 'draft') {
             const fmtOption = fmtFlag ? `-fmt preamble` : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 -draftmode ${fmtOption} -jobname=main "${mainFile}"`;
+            const draftFlag = (compiler === 'pdflatex' || compiler === 'lualatex') ? '-draftmode' : '';
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname=main "${mainFile}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
             // latexmk needs to be told how to use the custom format
