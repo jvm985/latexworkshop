@@ -186,17 +186,26 @@ export default function EditorView() {
     } catch (err: any) {
       setLastStatus('error');
       if (!isAutoMode) setShowErrorView(true);
+      
+      const processErrorData = (data: any) => {
+        try {
+          const result = typeof data === 'string' ? JSON.parse(data) : data;
+          const rawLogs = result.logs || result.error || (typeof result === 'string' ? result : 'Compilation failed.');
+          setLogs(rawLogs);
+          setParsedErrors(parseLogErrors(rawLogs, pType as any));
+        } catch(e) { 
+          setLogs(typeof data === 'string' ? data : 'Compilation error.'); 
+        }
+      };
+
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const result = JSON.parse(reader.result as string);
-            const rawLogs = result.logs || 'Compilation failed.';
-            setLogs(rawLogs);
-            setParsedErrors(parseLogErrors(rawLogs, pType as any));
-          } catch(e) { setLogs('Compilation error.'); }
-        };
+        reader.onload = () => processErrorData(reader.result);
         reader.readAsText(err.response.data);
+      } else if (err.response?.data) {
+        processErrorData(err.response.data);
+      } else {
+        setLogs(err.message || 'Unknown error occurred.');
       }
     } finally { setCompiling(false); }
   };

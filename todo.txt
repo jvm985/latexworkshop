@@ -1,40 +1,9 @@
+BELANGRIJK: verander nooit iets aan een van de apps, tenzij ik er uitdrukkelijk om heb gevraagd.
+
 klaar
 -----
-
--typst compileert niet, enfin: toont lege pdf (FIXED: backend detects main files, frontend auto-compiles)
--maak een test waarbij je kan inloggen (smoke) en alle functies uittest: compileren (check pdf!), nieuw, verwijderen. Je moet daarbij connectie maken vanaf mijn lokale pc naar irishof.cloud, anders heeft het geen zin. doe dat eerst.
--wanneer je een project opent, moet meteen de bijhorende pdf worden getoond, of gecompileerd indien afwezig (FIXED: fetchAll(true))
--maak een knop om een latex project te exporteren naar een typst project, en vice verca (FIXED: Convert button + Pandoc backend)
--openen van een latex project duurt heel lang
--latex syntax highlighting toevoegen 
-- maak het mogelijk om bestanden en mappen te kunnen uploaden in een project: en die moeten dan verschijnen in de huidig geselcteerde map van dat project
--wanneer typst een fout vindt, verwijderdt die dat it mijn bestand: niet oké
--wanneer de pdf wijzigt, is er een flash op het scherm, heel vervelend. ik vind die pdf viewer ook niet zo cool, zijn er geen betere?
-- als ik een project open (latex en typst) waarin een fout staat, toont de app niets, ook geen fouten
-- voorzie bij een open projhect een menu met : settings, delen, convrteren, ...
-- de uitlogknop linksonder is overbodig
-- de compileerknop bij latex moet boven de editor staan. voorzie ook de shortcut ctrl-enter om te compileren
-
-- in geopend project, boomstructuur: als ik op een item klik, zet je rechts een vertikale puntjes knop (...). als ik daar op klik, krijg ik een menu: hernoem, download, verwijder, dan een scheidingsstreep en dan nieuw bestand, nieuwe map, upload (bestand/map). die laatste drie creëren een nieuw bestand/map op dezelfde plaats als het bestand dat was geselecteerd, of in het geval een map was gesleecteerd: in die map. 
-- voorzie een knop om de laatste output van latex of typst te kunnen zien: laat de gebruiker kiezen tussen raw: alles, of geordend: waarbij jij de errors en fouten netjes oplijst, zonder overbodigheden
-- zorg ervoor dat de app heel uniform werkt voor de drie soorten projecten
-- geef voor alle drie de types boven de editor een knop voor compileren en een vinkje voor auto-compile
-- bij auto-compile:  geeft dikwijls fouten omdat er een haakje ontbreekt of zo. vind een manier om dan gewoon de pdf te laten zien, en dan ergens een icoontje dat aangeeft dat er een error bij de laatste compilatie was (rood/groen bolletje of zo). wanneer gebruiker op rood bolletje klikt, kmt hij bij de errors van de laatste compilatie, net hetzelfde als wanneer je op de knop compileren klikt en er zijn fouten gebeurd, dan toon je ook datzelfde foutenscherm (raw/opgeschoond)
-- in de boomstructuur: voorzie dat ik bestanden en mappen kan verslepen (drag n drop) naar een andere plek in de boom, daarmee verplaats ik dat bestand
-- voorzie nu ook Markdown als type project, met alle functionaliteit als bij latex en typst. ik zie dat niet bij het menu om nieuw project te maken.
-- voor latex projecten: voorzie bij de compileerknop keuze voor voorgecompileerde preamble, draft en gewone compilatie
-
-to do
------
-
-- ik wil een andere, eenvoudige pdf viewer. alleen in- en uitzoomen en downloaden is nodig. en ook springen naar de lijn van de editor, om de pdf te tonen waar de auteur aan het werken was in de editor.
+- de error log van latex is nu zichtbaar (en geeft meer info als de compilatie mislukt).
 
 
-- als ik een png , jpreg of om t even welk grafisch bestand open, moet je dat ook tonen op de plaats van de editor, net zoals wanneer je een tex bestand opent. je toont enkel de bestandsnaam nu
-
-
-- wanneer ik compileer (of auto compile) moet de pdf het stuk tonen waar de auteur mee bezig is, niet bovenaan springen
-
-- voor latex projecten het compileermenu verschijnt op een verkeerde plek. preamble moet je aan en uit kunnen vinken. normal en draft zijn toggle: als de ene aan gaat, gaat de andere uit 
-
-- de drie compileermethoden duren even lang voor latex: er klopt iets niet
+todo
+----

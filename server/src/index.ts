@@ -265,7 +265,12 @@ const compileProject = async (project: any, documents: any[], options: any) => {
     }
 
     if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
-    if (!mainFile) throw new Error('Geen compileerbaar bestand gevonden.');
+    if (!mainFile) {
+        return { 
+            error: 'Geen compileerbaar bestand gevonden.', 
+            logs: 'De compiler kon geen hoofdbestand (.tex, .typ, of .md) vinden om te verwerken. Zorg ervoor dat er een bestand is met \\documentclass (voor LaTeX) of gebruik de "Set Main" optie.' 
+        };
+    }
 
     let command = '';
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
@@ -299,9 +304,14 @@ const compileProject = async (project: any, documents: any[], options: any) => {
             const synctexPath = path.join(workDir, 'main.synctex.gz');
             const logPath = path.join(workDir, 'main.log');
             
-            let combinedLogs = `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
+            let combinedLogs = "";
+            if (error) {
+                combinedLogs += `--- EXECUTION ERROR ---\n${error.message}\n\n`;
+            }
+            combinedLogs += `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
+            
             if (fs.existsSync(logPath)) {
-                combinedLogs += "\n--- FULL LATEX LOG ---\n" + fs.readFileSync(logPath, 'utf8');
+                combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(logPath, 'utf8');
             }
 
             if (fs.existsSync(pdfPath)) {
@@ -323,9 +333,19 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const documents = await Document.find({ project: project._id, isFolder: false });
   try {
       const result: any = await compileProject(project, documents, req.body);
-      res.sendFile(result.pdfPath);
+      if (result.pdfPath) {
+          res.sendFile(result.pdfPath);
+      } else {
+          // This handles the case where compileProject returned a success object but without a PDF path (e.g. the mainFile check)
+          res.status(400).json(result);
+      }
   } catch (err: any) {
-      res.status(500).json(err);
+      // Ensure we send a proper JSON object even if it's an Error instance
+      if (err instanceof Error) {
+          res.status(500).json({ error: err.message, logs: err.stack });
+      } else {
+          res.status(500).json(err);
+      }
   }
 });
 
