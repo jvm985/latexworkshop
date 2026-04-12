@@ -300,27 +300,23 @@ export const compileProject = async (project: any, documents: any[], options: an
     let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
     if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
         // Find a safe spot for endpreamble: BEFORE packages that load native fonts or any input/include
-        const problematicPatterns = [
-            '\\usepackage{fontspec}',
-            '\\usepackage{polyglossia}',
-            '\\usepackage{unicode-math}',
-            '\\input{',
-            '\\include{'
-        ];
+        const problematicRegex = /\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{/i;
         
         let insertIndex = targetContent.indexOf('\\begin{document}');
-        
-        for (const pattern of problematicPatterns) {
-            const idx = targetContent.indexOf(pattern);
-            if (idx !== -1 && idx < insertIndex) {
-                insertIndex = idx;
-            }
+        const match = targetContent.match(problematicRegex);
+        if (match && match.index! < insertIndex) {
+            insertIndex = match.index!;
         }
 
         if (insertIndex !== -1) {
-            targetContent = targetContent.slice(0, insertIndex) + '\\csname endpreamble\\endcsname\n' + targetContent.slice(insertIndex);
+            // Use literal \endpreamble but define it as \relax if not already defined (by mylatexformat)
+            const marker = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\\endpreamble\n';
+            targetContent = targetContent.slice(0, insertIndex) + marker + targetContent.slice(insertIndex);
         }
     }
+    console.log('--- TARGET CONTENT HEAD ---');
+    console.log(targetContent.slice(0, 500));
+    console.log('---------------------------');
     fs.writeFileSync(targetPath, targetContent);
 
     let command = '';
