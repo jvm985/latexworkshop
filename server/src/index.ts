@@ -240,6 +240,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
 
     let mainFile = '';
     let fallbackFile = '';
+    let latestModTime = 0;
 
     for (const doc of documents) {
         const fullPath = path.join(workDir, doc.path, doc.name);
@@ -247,11 +248,26 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         
         // Use currentContent if this is the file being edited
         const contentToUse = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
-        const newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(contentToUse || '');
+        let newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(contentToUse || '');
         
+        // Special handling for preamble marker to prevent unnecessary re-writes
+        if (usePreamble && (preferredMain && doc.name === preferredMain || doc.isMain)) {
+            const contentStr = newContent.toString();
+            if (!contentStr.includes('endpreamble')) {
+                const beginDocIndex = contentStr.indexOf('\\begin{document}');
+                if (beginDocIndex !== -1) {
+                    newContent = Buffer.from(contentStr.slice(0, beginDocIndex) + '\\csname endpreamble\\endcsname\n' + contentStr.slice(beginDocIndex));
+                }
+            }
+        }
+
         if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
             fs.writeFileSync(fullPath, newContent);
         }
+        
+        // Track the latest modification time among all files
+        const stats = fs.statSync(fullPath);
+        if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
         
         if (preferredMain && doc.name === preferredMain) {
             if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = preferredMain;
@@ -281,30 +297,17 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         command = `pandoc "${mainFile}" -o main.pdf`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const mainFullPath = path.join(workDir, mainFile);
         const fmtPath = path.join(workDir, 'preamble.fmt');
         
         if (usePreamble) {
-            // Check if we need to regenerate the format file
             let shouldRegenerate = !fs.existsSync(fmtPath);
             if (!shouldRegenerate) {
-                const mainStats = fs.statSync(mainFullPath);
                 const fmtStats = fs.statSync(fmtPath);
-                if (mainStats.mtimeMs > fmtStats.mtimeMs) shouldRegenerate = true;
+                // Regenerate if ANY file is newer than the format file
+                if (latestModTime > fmtStats.mtimeMs) shouldRegenerate = true;
             }
 
             if (shouldRegenerate) {
-                // Prepend \csname endpreamble\endcsname if it's not in the file to help mylatexformat
-                let content = fs.readFileSync(mainFullPath, 'utf8');
-                if (!content.includes('endpreamble')) {
-                    const docClassIndex = content.indexOf('\\documentclass');
-                    const beginDocIndex = content.indexOf('\\begin{document}');
-                    if (docClassIndex !== -1 && beginDocIndex !== -1) {
-                        const newContent = content.slice(0, beginDocIndex) + '\\csname endpreamble\\endcsname\n' + content.slice(beginDocIndex);
-                        fs.writeFileSync(mainFullPath, newContent);
-                    }
-                }
-                
                 const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
                 await new Promise((resolve) => {
                     exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
