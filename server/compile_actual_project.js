@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { compileProject } from './dist/index.js';
 import fs from 'fs';
 
-const projectID = '69d8080ed0dd6fef006ae994';
+const projectID = '69da29cd8c9f0dce52ed3e71';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
 
 async function run() {
@@ -10,14 +10,14 @@ async function run() {
     await mongoose.connect(MONGO_URI);
     console.log("Connected.");
 
-    const projectSchema = new mongoose.Schema({
+    // Models are already handled in compileProject import or defined below
+    const Project = mongoose.models.Project || mongoose.model('Project', new mongoose.Schema({
         name: String,
         type: String,
         compiler: String,
-    });
-    const Project = mongoose.models.Project || mongoose.model('Project', projectSchema);
+    }));
 
-    const documentSchema = new mongoose.Schema({
+    const Document = mongoose.models.Document || mongoose.model('Document', new mongoose.Schema({
         project: mongoose.Schema.Types.ObjectId,
         name: String,
         path: String,
@@ -25,8 +25,7 @@ async function run() {
         isBinary: Boolean,
         binaryData: Buffer,
         isMain: Boolean
-    });
-    const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
+    }));
 
     const project = await Project.findById(projectID);
     if (!project) {
@@ -39,9 +38,9 @@ async function run() {
     console.log(`Found ${documents.length} non-folder documents.`);
 
     const options = {
-        preferredMain: '5_geschiedenis.tex',
+        preferredMain: 'main.typ',
         mode: 'normal',
-        usePreamble: true
+        usePreamble: false
     };
 
     console.log("\n--- TESTING ACTUAL PROJECT ---");
