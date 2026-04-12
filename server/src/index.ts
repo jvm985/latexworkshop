@@ -299,16 +299,22 @@ export const compileProject = async (project: any, documents: any[], options: an
     // Prepare compilation target in the same directory as the original main file to preserve relative paths
     let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
     if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
-        // Find a safe spot for endpreamble: BEFORE packages that load native fonts (fontspec is problematic for \dump)
-        const fontspecIndex = targetContent.indexOf('\\usepackage{fontspec}');
-        const polyglossiaIndex = targetContent.indexOf('\\usepackage{polyglossia}');
-        const unicodeMathIndex = targetContent.indexOf('\\usepackage{unicode-math}');
+        // Find a safe spot for endpreamble: BEFORE packages that load native fonts or any input/include
+        const problematicPatterns = [
+            '\\usepackage{fontspec}',
+            '\\usepackage{polyglossia}',
+            '\\usepackage{unicode-math}',
+            '\\input{',
+            '\\include{'
+        ];
         
         let insertIndex = targetContent.indexOf('\\begin{document}');
-        const firstFontPackage = [fontspecIndex, polyglossiaIndex, unicodeMathIndex].filter(i => i !== -1).sort((a, b) => a - b)[0];
         
-        if (firstFontPackage !== undefined && firstFontPackage < insertIndex) {
-            insertIndex = firstFontPackage;
+        for (const pattern of problematicPatterns) {
+            const idx = targetContent.indexOf(pattern);
+            if (idx !== -1 && idx < insertIndex) {
+                insertIndex = idx;
+            }
         }
 
         if (insertIndex !== -1) {
