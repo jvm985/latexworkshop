@@ -84,6 +84,26 @@ async function runTests() {
         _id: 'doc_3', name: 'main.md', path: '', content: mdContent, isMain: true
     }], { preferredMain: 'main.md', mode: 'normal', usePreamble: false });
 
+    // 4. Test complex structure with subdirectories (XeLaTeX + Preamble)
+    const complexProject = { _id: 'complex_' + testId, type: 'latex', compiler: 'xelatex' };
+    const complexDocs = [
+        {
+            _id: 'c1', name: 'main.tex', path: '', isMain: true,
+            content: `\\documentclass{book}\n\\input{sub/config}\n\\begin{document}\n\\include{sub/chapter1}\n\\end{document}`
+        },
+        {
+            _id: 'c2', name: 'config.tex', path: 'sub/',
+            content: `\\usepackage{xcolor}`
+        },
+        {
+            _id: 'c3', name: 'chapter1.tex', path: 'sub/',
+            content: `\\chapter{Test}\nHello from subfolder with \\textcolor{blue}{color}!`
+        }
+    ];
+    await runTestCase('Complex Subdirs | xelatex | preamble: true', complexProject, complexDocs, {
+        preferredMain: 'main.tex', mode: 'normal', usePreamble: true
+    });
+
     console.log(`\\n=== TEST SUMMARY: ${passed} passed, ${failed} failed ===`);
     
     // Clean up
