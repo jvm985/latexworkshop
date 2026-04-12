@@ -88,85 +88,136 @@ const authenticate = async (req: any, res: any, next: any) => {
   } catch (err) { res.status(401).send('Invalid token'); }
 };
 
-// --- COMPILATION ENGINE (EPHEMERAL RAM-ONLY) ---
+// --- COMPILATION ENGINE ---
 export const compileProject = async (project: any, documents: any[], options: any) => {
-    const { preferredMain, currentContent, currentFileId } = options;
+    const { preferredMain, mode, usePreamble, currentContent, currentFileId } = options;
     
+    // Use /dev/shm (RAM) for ultra-fast access and to ensure no disk lag
     const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
-    const runId = Math.random().toString(36).substring(7);
-    const workDir = path.join(baseDir, `lw_run_${project._id}_${runId}`);
+    const workDir = path.join(baseDir, `lw_proj_${project._id}`);
+    const cacheDir = path.join(baseDir, `lw_cache_${project._id}`);
     
     if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-    try {
-        let mainFile = '';
-        for (const doc of documents) {
-            if (doc.isFolder) continue;
-            const fullPath = path.join(workDir, doc.path, doc.name);
-            fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-            
-            const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
-            const data = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(content || '');
-            fs.writeFileSync(fullPath, data);
-            
-            const relPath = path.join(doc.path, doc.name);
-            if (preferredMain && doc.name === preferredMain) mainFile = relPath;
-            if (doc.isMain && !mainFile) mainFile = relPath;
+    let mainFile = '';
+    let latestModTime = 0;
+
+    // 1. Sync all files to RAM
+    for (const doc of documents) {
+        if (doc.isFolder) continue;
+        const fullPath = path.join(workDir, doc.path, doc.name);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        
+        const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+        const data = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(content || '');
+        
+        // Write and force flush to OS buffer
+        fs.writeFileSync(fullPath, data);
+        try {
+            const fd = fs.openSync(fullPath, 'r+');
+            fs.fsyncSync(fd);
+            fs.closeSync(fd);
+        } catch (e) {}
+        
+        const stats = fs.statSync(fullPath);
+        if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
+        
+        const relPath = path.join(doc.path, doc.name);
+        if (preferredMain && doc.name === preferredMain) mainFile = relPath;
+        if (doc.isMain && !mainFile) mainFile = relPath;
+    }
+
+    if (!mainFile) {
+        const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'));
+        if (fallback) mainFile = path.join(fallback.path, fallback.name);
+    }
+
+    if (!mainFile) return { error: 'Geen hoofdbestand gevonden.', logs: 'Stel een hoofdbestand in.' };
+
+    const jobName = path.parse(mainFile).name;
+    const targetPath = path.join(workDir, mainFile);
+    const absLogPath = path.join(workDir, path.dirname(mainFile), `${jobName}.log`);
+    const absActualPdfPath = path.join(workDir, path.dirname(mainFile), `${jobName}.pdf`);
+    const finalPdf = path.join(workDir, 'output.pdf');
+
+    // 2. Clear old artifacts so we never serve a previous version
+    [finalPdf, absActualPdfPath, absLogPath, 
+     path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`),
+     path.join(workDir, path.dirname(mainFile), `${jobName}.fdb_latexmk`),
+     path.join(workDir, path.dirname(mainFile), `${jobName}.fls`)
+    ].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
+
+    // 3. LaTeX Preamble Injection
+    if (project.type === 'latex' && usePreamble) {
+        let content = fs.readFileSync(targetPath, 'utf8');
+        if (!content.includes('endpreamble')) {
+            const marker = '\n\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\\endpreamble\n';
+            content = content.replace(/(\\documentclass(?:\[.*?\])?\{.*?\})/i, `$1${marker}`);
+            fs.writeFileSync(targetPath, content);
+        }
+    }
+
+    let command = '';
+    const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
+
+    if (project.type === 'typst') {
+        // Output directly to output.pdf in the root of workDir for simplicity
+        command = `typst compile "${mainFile}" "output.pdf"`;
+    } else if (project.type === 'markdown') {
+        command = `pandoc "${mainFile}" -o "output.pdf"`;
+    } else {
+        const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
+        const fmtName = `${jobName}_${compiler}`;
+        const fmtPath = path.join(workDir, path.dirname(mainFile), `${fmtName}.fmt`);
+        let dumpSuccess = false;
+
+        if (usePreamble) {
+            let shouldRegenerate = !fs.existsSync(fmtPath);
+            if (!shouldRegenerate && latestModTime > fs.statSync(fmtPath).mtimeMs) shouldRegenerate = true;
+
+            if (shouldRegenerate) {
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                dumpSuccess = await new Promise((resolve) => {
+                    exec(dumpCmd, { cwd: workDir, env }, (err) => resolve(!err));
+                });
+            } else {
+                dumpSuccess = true;
+            }
         }
 
-        if (!mainFile) {
-            const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'));
-            if (fallback) mainFile = path.join(fallback.path, fallback.name);
-        }
-
-        if (!mainFile) throw new Error('Geen hoofdbestand gevonden.');
-
-        const jobName = path.parse(mainFile).name;
-        const pdfName = `${jobName}.pdf`;
-        const absPdfPath = path.join(workDir, path.dirname(mainFile), pdfName);
-        const absLogPath = path.join(workDir, path.dirname(mainFile), `${jobName}.log`);
-
-        let command = '';
-        const env = { ...process.env, TYPST_CACHE_DIR: path.join(workDir, '.typst_cache') };
-
-        if (project.type === 'typst') {
-            command = `typst compile "${mainFile}" "${pdfName}"`;
-        } else if (project.type === 'markdown') {
-            command = `pandoc "${mainFile}" -o "${pdfName}"`;
+        const fmtFlag = (usePreamble && dumpSuccess && fs.existsSync(fmtPath)) ? `-fmt="${fmtName}"` : '';
+        if (mode === 'draft') {
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} "${mainFile}"`;
         } else {
             const engine = project.compiler === 'xelatex' ? '-pdfxe' : (project.compiler === 'lualatex' ? '-pdflua' : '-pdf');
-            command = `latexmk ${engine} -interaction=nonstopmode -f -synctex=1 "${mainFile}"`;
+            const latexmkFmt = fmtFlag ? `-latexoption='${fmtFlag}'` : '';
+            command = `latexmk ${engine} -interaction=nonstopmode -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
         }
-
-        return await new Promise((resolve, reject) => {
-            exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
-                let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
-                if (fs.existsSync(absLogPath)) {
-                    logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
-                }
-
-                if (fs.existsSync(absPdfPath)) {
-                    const pdfBuffer = fs.readFileSync(absPdfPath);
-                    const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
-                    if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
-                    
-                    fs.rmSync(workDir, { recursive: true, force: true });
-                    resolve({ pdfBuffer, logs });
-                } else {
-                    const isEmpty = logs.includes("No pages of output");
-                    const errResponse = { 
-                        error: isEmpty ? 'Document is leeg' : 'Compilatie mislukt', 
-                        logs 
-                    };
-                    fs.rmSync(workDir, { recursive: true, force: true });
-                    reject(errResponse);
-                }
-            });
-        });
-    } catch (err: any) {
-        if (fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true });
-        throw err;
     }
+
+    // 4. Execute
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
+            let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
+            if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
+
+            // Success detection
+            const producedPdf = (project.type === 'latex') ? absActualPdfPath : finalPdf;
+
+            if (fs.existsSync(producedPdf)) {
+                if (producedPdf !== finalPdf) fs.renameSync(producedPdf, finalPdf);
+                
+                // SyncTeX support
+                const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
+                if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
+                
+                resolve({ pdfPath: finalPdf, logs });
+            } else {
+                reject({ error: 'Compilatie mislukt', logs });
+            }
+        });
+    });
 };
 
 // --- ROUTES ---
@@ -273,12 +324,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const documents = await Document.find({ project: project._id, isFolder: false });
   try {
       const result: any = await compileProject(project, documents, req.body);
-      if (result.pdfBuffer) {
-          res.contentType('application/pdf');
-          res.send(result.pdfBuffer);
-      } else {
-          res.status(400).json(result);
-      }
+      res.sendFile(result.pdfPath);
   } catch (err: any) {
       res.status(500).json(err);
   }
@@ -307,16 +353,16 @@ io.on('connection', (socket) => {
 const cleanup = () => {
     const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
     const dirs = fs.readdirSync(baseDir);
-    const now = Date.now();
+    const now = Date.now(), maxAge = 3600000; // 1 hour
     for (const dir of dirs) {
-        if (dir.startsWith('lw_run_')) {
+        if (dir.startsWith('lw_proj_') || dir.startsWith('lw_cache_')) {
             const p = path.join(baseDir, dir);
             try {
-                if (now - fs.statSync(p).mtimeMs > 600000) fs.rmSync(p, { recursive: true, force: true });
+                if (now - fs.statSync(p).mtimeMs > maxAge) fs.rmSync(p, { recursive: true, force: true });
             } catch (e) {}
         }
     }
 };
-setInterval(cleanup, 600000);
+setInterval(cleanup, 3600000);
 
 if (!process.env.NO_LISTEN) httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
