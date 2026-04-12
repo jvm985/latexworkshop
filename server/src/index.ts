@@ -185,22 +185,33 @@ export const compileProject = async (project: any, documents: any[], options: an
             command = `latexmk ${engine} -interaction=nonstopmode -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
         }
     }
+// Execute
+return new Promise((resolve, reject) => {
+    exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
+        let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
+        if (fs.existsSync(logPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(logPath, 'utf8')}`;
 
-    return new Promise((resolve, reject) => {
-        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
-            let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
-            if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
+        // Check for common 'empty document' indicators in logs
+        const isEmpty = logs.includes("No pages of output") || logs.includes("Output written on") === false;
 
-            if (fs.existsSync(absActualPdfPath)) {
-                fs.renameSync(absActualPdfPath, finalPdf);
-                const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
-                if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
-                resolve({ pdfPath: finalPdf, logs });
-            } else {
-                reject({ error: 'Compilation failed', logs });
+        if (fs.existsSync(absActualPdfPath)) {
+            fs.renameSync(absActualPdfPath, finalPdf);
+            const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
+            if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
+
+            if (isEmpty) {
+                logs = "⚠️ WAARSCHUWING: De compilatie slaagde, maar het document is LEEG (0 pagina's). Controleer of je \\include-bestanden wel in je \\includeonly{} staan.\n\n" + logs;
             }
-        });
+            resolve({ pdfPath: finalPdf, logs });
+        } else {
+            if (isEmpty) {
+                reject({ error: 'Geen pagina\'s gegenereerd.', logs: "Fout: Het document is leeg. Dit gebeurt vaak als \\includeonly gebruikt wordt voor bestanden die niet bestaan of uitgeschakeld zijn.\n\n" + logs });
+            } else {
+                reject({ error: 'Compilatie mislukt', logs });
+            }
+        }
     });
+});
 };
 
 // --- ROUTES ---
