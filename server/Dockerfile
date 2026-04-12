@@ -29,7 +29,7 @@ COPY package*.json ./
 RUN npm install
 
 # Copy custom fonts and update cache
-COPY fonts/ /usr/share/fonts/truetype/custom/
+COPY fonts/ /usr/share/fonts/dm-sans/
 RUN fc-cache -f -v
 
 COPY . .
