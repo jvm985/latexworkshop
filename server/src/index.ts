@@ -189,8 +189,7 @@ export const compileProject = async (project: any, documents: any[], options: an
 return new Promise((resolve, reject) => {
     exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
         let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
-        if (fs.existsSync(logPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(logPath, 'utf8')}`;
-
+        if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
         // Check for common 'empty document' indicators in logs
         const isEmpty = logs.includes("No pages of output") || logs.includes("Output written on") === false;
 
