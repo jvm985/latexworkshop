@@ -35,8 +35,8 @@ async function run() {
     }
     console.log(`Compiling project: ${project.name} (${project.compiler})`);
 
-    const documents = await Document.find({ project: projectID });
-    console.log(`Found ${documents.length} documents.`);
+    const documents = await Document.find({ project: projectID, isFolder: false });
+    console.log(`Found ${documents.length} non-folder documents.`);
 
     const options = {
         preferredMain: '5_geschiedenis.tex', // based on previous logs
