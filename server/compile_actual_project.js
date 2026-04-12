@@ -38,41 +38,20 @@ async function run() {
     const documents = await Document.find({ project: projectID, isFolder: false });
     console.log(`Found ${documents.length} non-folder documents.`);
 
-    // Fix the includeonly issue for testing
-    const mainDoc = documents.find(d => d.name === '5_geschiedenis.tex');
-    if (mainDoc) {
-        mainDoc.content = mainDoc.content.replace(/\\includeonly\{[\s\S]*?\}/, '% includeonly removed for testing');
-    }
-
-    const optionsWithPreamble = {
+    const options = {
         preferredMain: '5_geschiedenis.tex',
         mode: 'normal',
         usePreamble: true
     };
 
-    const optionsWithoutPreamble = {
-        preferredMain: '5_geschiedenis.tex',
-        mode: 'normal',
-        usePreamble: false
-    };
-
-    console.log("\n--- TESTING WITHOUT PREAMBLE ---");
+    console.log("\n--- TESTING ACTUAL PROJECT ---");
     try {
-        const result = await compileProject(project, documents, optionsWithoutPreamble);
-        console.log("✅ SUCCESS WITHOUT PREAMBLE");
-    } catch (err) {
-        console.log("❌ FAILED WITHOUT PREAMBLE");
-        console.log("Error:", err.error);
-        // console.log("Logs:", err.logs);
-    }
-
-    console.log("\n--- TESTING WITH PREAMBLE ---");
-    try {
-        const result = await compileProject(project, documents, optionsWithPreamble);
-        console.log("✅ SUCCESS WITH PREAMBLE");
+        const result = await compileProject(project, documents, options);
+        console.log("✅ SUCCESS");
+        console.log("PDF Path:", result.pdfPath);
         process.exit(0);
     } catch (err) {
-        console.log("❌ FAILED WITH PREAMBLE");
+        console.log("❌ FAILED");
         console.log("Error:", err.error);
         console.log("Logs (last 20 lines):");
         const lines = (err.logs || "").split('\n');
