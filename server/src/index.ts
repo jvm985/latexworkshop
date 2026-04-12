@@ -288,6 +288,11 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         };
     }
 
+    const jobName = path.parse(mainFile).name || 'main';
+    const synctexPath = path.join(workDir, `${jobName}.synctex.gz`);
+    const logPath = path.join(workDir, `${jobName}.log`);
+    const actualPdfPath = path.join(workDir, `${jobName}.pdf`);
+
     let command = '';
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
@@ -297,7 +302,7 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         command = `pandoc "${mainFile}" -o main.pdf`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const fmtPath = path.join(workDir, 'preamble.fmt');
+        const fmtPath = path.join(workDir, `${jobName}.fmt`);
         
         if (usePreamble) {
             let shouldRegenerate = !fs.existsSync(fmtPath);
@@ -308,31 +313,28 @@ const compileProject = async (project: any, documents: any[], options: any) => {
             }
 
             if (shouldRegenerate) {
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
                 await new Promise((resolve) => {
                     exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
                 });
             }
         }
 
-        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? '&preamble' : '';
+        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `&${jobName}` : '';
         if (mode === 'draft') {
-            const fmtOption = fmtFlag ? `-fmt preamble` : '';
+            const fmtOption = fmtFlag ? `-fmt "${jobName}"` : '';
             const draftFlag = (compiler === 'pdflatex' || compiler === 'lualatex') ? '-draftmode' : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname=main "${mainFile}"`;
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname="${jobName}" "${mainFile}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
             // latexmk needs to be told how to use the custom format
-            const latexmkFmt = fmtFlag ? `-latexoption="-fmt preamble"` : '';
-            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
+            const latexmkFmt = fmtFlag ? `-latexoption="-fmt ${jobName}"` : '';
+            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
         }
     }
 
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
-            const synctexPath = path.join(workDir, 'main.synctex.gz');
-            const logPath = path.join(workDir, 'main.log');
-            
             let combinedLogs = "";
             if (error) {
                 combinedLogs += `--- EXECUTION ERROR ---\n${error.message}\n\n`;
@@ -343,7 +345,8 @@ const compileProject = async (project: any, documents: any[], options: any) => {
                 combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(logPath, 'utf8');
             }
 
-            if (fs.existsSync(pdfPath)) {
+            if (fs.existsSync(actualPdfPath)) {
+                if (actualPdfPath !== pdfPath) fs.renameSync(actualPdfPath, pdfPath);
                 if (fs.existsSync(synctexPath)) {
                     fs.copyFileSync(synctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
                 }
