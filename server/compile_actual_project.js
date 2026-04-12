@@ -15,7 +15,7 @@ async function run() {
         type: String,
         compiler: String,
     });
-    const Project = mongoose.model('Project', projectSchema);
+    const Project = mongoose.models.Project || mongoose.model('Project', projectSchema);
 
     const documentSchema = new mongoose.Schema({
         project: mongoose.Schema.Types.ObjectId,
@@ -26,7 +26,7 @@ async function run() {
         binaryData: Buffer,
         isMain: Boolean
     });
-    const Document = mongoose.model('Document', documentSchema);
+    const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
 
     const project = await Project.findById(projectID);
     if (!project) {
