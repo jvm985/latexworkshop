@@ -305,9 +305,9 @@ export const compileProject = async (project: any, documents: any[], options: an
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
 
     if (project.type === 'typst') {
-        command = `typst compile "${compilationTarget}" main.pdf`;
+        command = `typst compile "${compilationTarget}" "${actualPdfPath}"`;
     } else if (project.type === 'markdown') {
-        command = `pandoc "${compilationTarget}" -o main.pdf`;
+        command = `pandoc "${compilationTarget}" -o "${actualPdfPath}"`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
         const fmtPath = path.join(workDir, `${jobName}.fmt`);
@@ -330,8 +330,8 @@ export const compileProject = async (project: any, documents: any[], options: an
         const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `&${jobName}` : '';
         if (mode === 'draft') {
             const fmtOption = fmtFlag ? `-fmt "${jobName}"` : '';
-            const draftFlag = (compiler === 'pdflatex' || compiler === 'lualatex') ? '-draftmode' : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${draftFlag} ${fmtOption} -jobname="${jobName}" "${compilationTarget}"`;
+            // Removed -draftmode so a PDF is still generated (single pass fast compile)
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtOption} -jobname="${jobName}" "${compilationTarget}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
             const latexmkFmt = fmtFlag ? `-latexoption="-fmt ${jobName}"` : '';
