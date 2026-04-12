@@ -38,24 +38,39 @@ async function run() {
     const documents = await Document.find({ project: projectID, isFolder: false });
     console.log(`Found ${documents.length} non-folder documents.`);
 
-    const options = {
-        preferredMain: '5_geschiedenis.tex', // based on previous logs
+    const optionsWithPreamble = {
+        preferredMain: '5_geschiedenis.tex',
         mode: 'normal',
         usePreamble: true
     };
 
+    const optionsWithoutPreamble = {
+        preferredMain: '5_geschiedenis.tex',
+        mode: 'normal',
+        usePreamble: false
+    };
+
+    console.log("\n--- TESTING WITHOUT PREAMBLE ---");
     try {
-        const result = await compileProject(project, documents, options);
-        console.log("✅ COMPILATION SUCCESSFUL!");
-        console.log("PDF Path:", result.pdfPath);
+        const result = await compileProject(project, documents, optionsWithoutPreamble);
+        console.log("✅ SUCCESS WITHOUT PREAMBLE");
+    } catch (err) {
+        console.log("❌ FAILED WITHOUT PREAMBLE");
+        console.log("Error:", err.error);
+        // console.log("Logs:", err.logs);
+    }
+
+    console.log("\n--- TESTING WITH PREAMBLE ---");
+    try {
+        const result = await compileProject(project, documents, optionsWithPreamble);
+        console.log("✅ SUCCESS WITH PREAMBLE");
         process.exit(0);
     } catch (err) {
-        console.log("❌ COMPILATION FAILED!");
-        console.log("Full error object:", JSON.stringify(err, null, 2));
-        if (err.error) console.log("Error:", err.error);
-        if (err.logs) console.log("Logs:", err.logs);
-        if (err.message) console.log("Message:", err.message);
-        if (err.stack) console.log("Stack:", err.stack);
+        console.log("❌ FAILED WITH PREAMBLE");
+        console.log("Error:", err.error);
+        console.log("Logs (last 20 lines):");
+        const lines = (err.logs || "").split('\n');
+        console.log(lines.slice(-20).join('\n'));
         process.exit(1);
     }
 }
