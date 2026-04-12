@@ -173,7 +173,7 @@ export const compileProject = async (project: any, documents: any[], options: an
     const env = { ...process.env, TYPST_CACHE_DIR: runCacheDir };
 
     if (project.type === 'typst') {
-        command = `typst compile "${mainFile}" "output.pdf"`;
+        command = `typst compile --font-path /usr/share/fonts/dm-sans/ "${mainFile}" "output.pdf"`;
     } else if (project.type === 'markdown') {
         command = `pandoc "${mainFile}" -o "output.pdf"`;
     } else {
