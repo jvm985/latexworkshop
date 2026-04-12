@@ -379,4 +379,30 @@ io.on('connection', (socket) => {
   });
 });
 
+// --- CLEANUP TASK ---
+const cleanupOldProjects = () => {
+    const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
+    const dirs = fs.readdirSync(baseDir);
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+    for (const dir of dirs) {
+        if (dir.startsWith('workshop_project_') || dir.startsWith('workshop_cache_')) {
+            const fullPath = path.join(baseDir, dir);
+            try {
+                const stats = fs.statSync(fullPath);
+                const age = now - Math.max(stats.atimeMs, stats.mtimeMs);
+                if (age > maxAge) {
+                    console.log(`🧹 Cleaning up old project directory: ${dir}`);
+                    fs.rmSync(fullPath, { recursive: true, force: true });
+                }
+            } catch (err) {
+                console.error(`❌ Error during cleanup of ${dir}:`, err);
+            }
+        }
+    }
+};
+setInterval(cleanupOldProjects, 60 * 60 * 1000); // Run every hour
+cleanupOldProjects(); // Run once at start
+
 httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
