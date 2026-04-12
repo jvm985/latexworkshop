@@ -7,7 +7,7 @@ import {
   Play, ChevronLeft, FileText, 
   Eye, Folder, FilePlus, FolderPlus, 
   AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw, Check,
   Settings, Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
@@ -84,6 +84,7 @@ export default function EditorView() {
   const [parsedErrors, setParsedErrors] = useState<any[]>([]);
   const [logView, setLogView] = useState<'ordered' | 'raw'>('ordered');
   const [showErrorView, setShowErrorView] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   const [showShare, setShowShare] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
@@ -623,6 +624,11 @@ export default function EditorView() {
                         </ZoomIn>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
+                        {logs && (
+                            <button onClick={() => { navigator.clipboard.writeText(logs); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {copied ? <Check size={14} color="#4ade80"/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy Logs'}
+                            </button>
+                        )}
                         <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
                         <button onClick={() => setShowErrorView(!showErrorView)} style={{ background: showErrorView ? '#0071e3' : '#333', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>{showErrorView ? 'Show PDF' : 'Show Logs'}</button>
                         {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
