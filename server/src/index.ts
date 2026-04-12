@@ -88,6 +88,134 @@ const authenticate = async (req: any, res: any, next: any) => {
   } catch (err) { res.status(401).send('Invalid token'); }
 };
 
+// --- COMPILATION ENGINE ---
+export const compileProject = async (project: any, documents: any[], options: any) => {
+    const { preferredMain, mode, usePreamble, currentContent, currentFileId } = options;
+    
+    // RAM-DISK Support
+    const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
+    const workDir = path.join(baseDir, `workshop_project_${project._id}`);
+    const cacheDir = path.join(baseDir, `workshop_cache_${project._id}`);
+    
+    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+    const finalPdfPath = path.join(workDir, 'main.pdf');
+    if (fs.existsSync(finalPdfPath)) fs.unlinkSync(finalPdfPath);
+
+    let mainFile = '';
+    let fallbackFile = '';
+    let latestModTime = 0;
+
+    for (const doc of documents) {
+        const fullPath = path.join(workDir, doc.path, doc.name);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        
+        const contentToUse = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+        let newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(contentToUse || '');
+        
+        if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
+            fs.writeFileSync(fullPath, newContent);
+        }
+        
+        const stats = fs.statSync(fullPath);
+        if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
+        
+        const relPath = path.join(doc.path, doc.name);
+        if (preferredMain && doc.name === preferredMain) {
+            if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = relPath;
+            else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = relPath;
+            else if (project.type === 'latex' && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) mainFile = relPath;
+        }
+        if (doc.isMain && !mainFile) mainFile = relPath;
+        if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = relPath;
+        if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = relPath;
+        if (project.type === 'latex' && !fallbackFile && (doc.name.endsWith('.tex') || doc.name.endsWith('.cls') || doc.name.endsWith('.sty')) && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) fallbackFile = relPath;
+    }
+
+    if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
+    if (!mainFile) return { error: 'Geen compileerbaar bestand gevonden.', logs: 'Voeg een hoofdbestand toe.' };
+
+    // Use original job name from filename to keep mylatexformat happy
+    const jobName = path.parse(mainFile).name;
+    const targetPath = path.join(workDir, mainFile);
+    const compileDir = workDir; 
+
+    const absLogPath = path.join(workDir, path.dirname(mainFile), `${jobName}.log`);
+    const absSynctexPath = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
+    const absActualPdfPath = path.join(workDir, path.dirname(mainFile), `${jobName}.pdf`);
+
+    // Clean up all possible output files
+    [absActualPdfPath, absLogPath, absSynctexPath, 
+     path.join(workDir, path.dirname(mainFile), `${jobName}.fdb_latexmk`),
+     path.join(workDir, path.dirname(mainFile), `${jobName}.fls`),
+     path.join(workDir, path.dirname(mainFile), `${jobName}.xdv`)
+    ].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
+
+    // Inject preamble marker if needed
+    if (project.type === 'latex' && usePreamble) {
+        let targetContent = fs.readFileSync(targetPath, 'utf8');
+        if (!targetContent.includes('endpreamble')) {
+            const marker = '\n\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\\endpreamble\n';
+            // Place marker after \documentclass to ensure basic settings are dumped but native fonts (which crash \dump) are not
+            targetContent = targetContent.replace(/(\\documentclass(?:\[.*?\])?\{.*?\})/i, `$1${marker}`);
+            fs.writeFileSync(targetPath, targetContent);
+        }
+    }
+
+    let command = '';
+    const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
+
+    if (project.type === 'typst') {
+        command = `typst compile "${mainFile}" "${absActualPdfPath}"`;
+    } else if (project.type === 'markdown') {
+        command = `pandoc "${mainFile}" -o "${absActualPdfPath}"`;
+    } else {
+        const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
+        const fmtName = `${jobName}_${compiler}`;
+        const fmtPath = path.join(workDir, path.dirname(mainFile), `${fmtName}.fmt`);
+        let dumpSuccess = false;
+        
+        if (usePreamble) {
+            let shouldRegenerate = !fs.existsSync(fmtPath);
+            if (!shouldRegenerate && latestModTime > fs.statSync(fmtPath).mtimeMs) shouldRegenerate = true;
+
+            if (shouldRegenerate) {
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                dumpSuccess = await new Promise((resolve) => {
+                    exec(dumpCmd, { cwd: compileDir, env }, (error) => resolve(!error));
+                });
+            } else {
+                dumpSuccess = true;
+            }
+        }
+
+        const fmtFlag = (usePreamble && dumpSuccess && fs.existsSync(fmtPath)) ? `-fmt="${fmtName}"` : '';
+        if (mode === 'draft') {
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} "${mainFile}"`;
+        } else {
+            const latexmkCompiler = project.compiler === 'xelatex' ? '-pdfxe' : (project.compiler === 'lualatex' ? '-pdflua' : '-pdf');
+            const latexmkFmt = fmtFlag ? `-latexoption='${fmtFlag}'` : '';
+            command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
+        }
+    }
+
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: compileDir, timeout: 60000, env }, (error, stdout, stderr) => {
+            let combinedLogs = (error ? `--- EXECUTION ERROR ---\n${error.message}\n\n` : "") + `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
+            if (fs.existsSync(absLogPath)) combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(absLogPath, 'utf8');
+
+            if (fs.existsSync(absActualPdfPath)) {
+                fs.renameSync(absActualPdfPath, finalPdfPath);
+                if (fs.existsSync(absSynctexPath)) fs.copyFileSync(absSynctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
+                resolve({ pdfPath: finalPdfPath, logs: combinedLogs });
+            } else {
+                reject({ error: 'Compilatie mislukt.', logs: combinedLogs });
+            }
+        });
+    });
+};
+
 // --- ROUTES ---
 app.post('/api/auth/google', async (req, res) => {
   const { credential } = req.body;
@@ -111,19 +239,10 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
   let compiler = 'pdflatex';
   if (type === 'typst') compiler = 'typst';
   if (type === 'markdown') compiler = 'pandoc';
-  
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
-  
-  let mainFile = 'main.tex';
-  let content = '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
-  if (type === 'typst') {
-      mainFile = 'main.typ';
-      content = '#set page(paper: "a4")\n= Hello Typst';
-  } else if (type === 'markdown') {
-      mainFile = 'main.md';
-      content = '# Hello Markdown\n\nThis is a professional document.';
-  }
-  
+  let mainFile = 'main.tex', content = '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
+  if (type === 'typst') { mainFile = 'main.typ'; content = '#set page(paper: "a4")\n= Hello Typst'; }
+  else if (type === 'markdown') { mainFile = 'main.md'; content = '# Hello Markdown\n\nThis is a professional document.'; }
   await Document.create({ project: project._id, name: mainFile, content, isMain: true });
   res.json(project);
 });
@@ -137,61 +256,34 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   const { name, path, isFolder, isBinary, content, binaryData } = req.body;
-  const doc = await Document.create({ 
-    project: req.params.id, name, path, isFolder, isBinary, 
-    content: content || '', 
-    binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null 
-  });
+  const doc = await Document.create({ project: req.params.id, name, path, isFolder, isBinary, content: content || '', binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null });
   res.json(doc);
 });
 
 app.get('/api/projects/:id/files/:fileId/raw', authenticate, async (req: any, res) => {
     const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
     if (!doc) return res.status(404).send('File not found');
-    
-    const contentType = mime.lookup(doc.name) || 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
-
-    if (doc.isBinary && doc.binaryData) {
-        res.send(doc.binaryData);
-    } else {
-        res.send(doc.content);
-    }
+    res.setHeader('Content-Type', mime.lookup(doc.name) || 'application/octet-stream');
+    res.send(doc.isBinary && doc.binaryData ? doc.binaryData : doc.content);
 });
 
 app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
     const oldDoc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
     if (!oldDoc) return res.status(404).send('File not found');
-
     const { path: newPath, name: newName } = req.body;
-
     if (oldDoc.isFolder && (newPath !== undefined || newName !== undefined)) {
         const oldFolderPath = oldDoc.path + oldDoc.name + "/";
-        const folderName = newName !== undefined ? newName : oldDoc.name;
-        const folderParentPath = newPath !== undefined ? newPath : oldDoc.path;
-        const newFolderPath = folderParentPath + folderName + "/";
-
+        const newFolderPath = (newPath !== undefined ? newPath : oldDoc.path) + (newName !== undefined ? newName : oldDoc.name) + "/";
         const children = await Document.find({ project: req.params.id, path: new RegExp('^' + oldFolderPath) });
-        for (const child of children) {
-            const updatedPath = child.path.replace(oldFolderPath, newFolderPath);
-            await Document.updateOne({ _id: child._id }, { path: updatedPath });
-        }
+        for (const child of children) await Document.updateOne({ _id: child._id }, { path: child.path.replace(oldFolderPath, newFolderPath) });
     }
-
-    const doc = await Document.findOneAndUpdate(
-        { _id: req.params.fileId, project: req.params.id }, 
-        req.body, 
-        { new: true }
-    );
+    const doc = await Document.findOneAndUpdate({ _id: req.params.fileId, project: req.params.id }, req.body, { new: true });
     res.json(doc);
 });
 
 app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
     const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
-    if (doc?.isFolder) {
-        const folderPath = doc.path + doc.name + "/";
-        await Document.deleteMany({ project: req.params.id, path: new RegExp('^' + folderPath) });
-    }
+    if (doc?.isFolder) await Document.deleteMany({ project: req.params.id, path: new RegExp('^' + doc.path + doc.name + "/") });
     await Document.deleteOne({ _id: req.params.fileId, project: req.params.id });
     res.json({ success: true });
 });
@@ -222,206 +314,28 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
     res.json({ success: true });
 });
 
-// --- COMPILATION ENGINE ---
-export const compileProject = async (project: any, documents: any[], options: any) => {
-    const { preferredMain, mode, usePreamble, currentContent, currentFileId } = options;
-    
-    // RAM-DISK Support
-    const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
-    const workDir = path.join(baseDir, `workshop_project_${project._id}`);
-    const cacheDir = path.join(baseDir, `workshop_cache_${project._id}`);
-    
-    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-
-    // CRITICAL: Delete old PDF to prevent sending stale versions
-    const pdfPath = path.join(workDir, 'main.pdf');
-    if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-
-    let mainFile = '';
-    let fallbackFile = '';
-    let latestModTime = 0;
-
-    for (const doc of documents) {
-        const fullPath = path.join(workDir, doc.path, doc.name);
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        
-        // Use currentContent if this is the file being edited
-        const contentToUse = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
-        let newContent = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(contentToUse || '');
-        
-        if (!fs.existsSync(fullPath) || !fs.readFileSync(fullPath).equals(newContent)) {
-            fs.writeFileSync(fullPath, newContent);
-        }
-        
-        // Track the latest modification time among all files
-        const stats = fs.statSync(fullPath);
-        if (stats.mtimeMs > latestModTime) latestModTime = stats.mtimeMs;
-        
-        const relPath = path.join(doc.path, doc.name);
-        if (preferredMain && doc.name === preferredMain) {
-            if (project.type === 'typst' && preferredMain.endsWith('.typ')) mainFile = relPath;
-            else if (project.type === 'markdown' && preferredMain.endsWith('.md')) mainFile = relPath;
-            else if (project.type === 'latex' && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) mainFile = relPath;
-        }
-        if (doc.isMain && !mainFile) mainFile = relPath;
-        if (project.type === 'typst' && !fallbackFile && doc.name.endsWith('.typ')) fallbackFile = relPath;
-        if (project.type === 'markdown' && !fallbackFile && doc.name.endsWith('.md')) fallbackFile = relPath;
-        if (project.type === 'latex' && !fallbackFile && (doc.name.endsWith('.tex') || doc.name.endsWith('.cls') || doc.name.endsWith('.sty')) && (doc.content?.includes('\\documentclass') || contentToUse?.includes('\\documentclass'))) fallbackFile = relPath;
-    }
-
-    if (!mainFile) mainFile = fallbackFile || (documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'))?.name || '');
-    if (!mainFile) {
-        return { 
-            error: 'Geen compileerbaar bestand gevonden.', 
-            logs: 'De compiler kon geen hoofdbestand (.tex, .typ, of .md) vinden om te verwerken. Zorg ervoor dat er een bestand is met \\documentclass (voor LaTeX) of gebruik de "Set Main" optie.' 
-        };
-    }
-
-    // Use a fixed job name internally for consistency, but keep original filename for source to preserve relative paths
-    const jobName = '__main__';
-    const compilationTarget = mainFile;
-    const targetPath = path.join(workDir, compilationTarget);
-
-    const absLogPath = path.join(workDir, `${jobName}.log`);
-    const absSynctexPath = path.join(workDir, `${jobName}.synctex.gz`);
-    const absActualPdfPath = path.join(workDir, `${jobName}.pdf`);
-    const absFdbPath = path.join(workDir, `${jobName}.fdb_latexmk`);
-    const absFlsPath = path.join(workDir, `${jobName}.fls`);
-
-    // Clean up old output files
-    [pdfPath, absActualPdfPath, absLogPath, absSynctexPath, absFdbPath, absFlsPath].forEach(p => {
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-    });
-
-    // Inject preamble marker if needed
-    if (project.type === 'latex' && usePreamble) {
-        let targetContent = fs.readFileSync(targetPath, 'utf8');
-        if (!targetContent.includes('endpreamble')) {
-            const problematicRegex = /(\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{)/i;
-            const marker = '\n\\csname endpreamble\\endcsname\n';
-            
-            if (problematicRegex.test(targetContent)) {
-                targetContent = targetContent.replace(problematicRegex, `${marker}$1`);
-            } else {
-                targetContent = targetContent.replace(/\\begin\s*\{document\}/i, `${marker}\\begin{document}`);
-            }
-            fs.writeFileSync(targetPath, targetContent);
-        }
-    }
-
-    let command = '';
-    const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
-
-    if (project.type === 'typst') {
-        command = `typst compile "${compilationTarget}" "${absActualPdfPath}"`;
-    } else if (project.type === 'markdown') {
-        command = `pandoc "${compilationTarget}" -o "${absActualPdfPath}"`;
-    } else {
-        const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const fmtName = `${jobName}_${compiler}`;
-        const fmtPath = path.join(workDir, `${fmtName}.fmt`);
-        let dumpSuccess = false;
-        
-        if (usePreamble) {
-            let shouldRegenerate = !fs.existsSync(fmtPath);
-            if (!shouldRegenerate) {
-                const fmtStats = fs.statSync(fmtPath);
-                if (latestModTime > fmtStats.mtimeMs) shouldRegenerate = true;
-            }
-
-            if (shouldRegenerate) {
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
-                dumpSuccess = await new Promise((resolve) => {
-                    exec(dumpCmd, { cwd: workDir, env }, (error) => {
-                        resolve(!error);
-                    });
-                });
-            } else {
-                dumpSuccess = true;
-            }
-        }
-
-        const fmtFlag = (usePreamble && dumpSuccess && fs.existsSync(fmtPath)) ? `-fmt="${fmtName}"` : '';
-        if (mode === 'draft') {
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname="${jobName}" "${compilationTarget}"`.replace(/\s+/g, ' ');
-        } else {
-            let latexmkCompiler = '-pdf';
-            if (project.compiler === 'xelatex') latexmkCompiler = '-pdfxe';
-            else if (project.compiler === 'lualatex') latexmkCompiler = '-pdflua';
-            
-            const latexmkFmt = fmtFlag ? `-latexoption='${fmtFlag}'` : '';
-            command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`.replace(/\s+/g, ' ');
-        }
-    }
-
-    return new Promise((resolve, reject) => {
-        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
-            let combinedLogs = "";
-            if (error) {
-                combinedLogs += `--- EXECUTION ERROR ---\n${error.message}\n\n`;
-            }
-            combinedLogs += `--- STDOUT ---\n${stdout}\n--- STDERR ---\n${stderr}`;
-            
-            if (fs.existsSync(absLogPath)) {
-                combinedLogs += "\n\n--- FULL LATEX LOG ---\n" + fs.readFileSync(absLogPath, 'utf8');
-            }
-
-            if (fs.existsSync(absActualPdfPath)) {
-                fs.renameSync(absActualPdfPath, pdfPath);
-                if (fs.existsSync(absSynctexPath)) {
-                    fs.copyFileSync(absSynctexPath, path.join('/tmp', `synctex_${project._id}.gz`));
-                }
-                resolve({ pdfPath, logs: combinedLogs });
-            } else {
-                reject({ error: 'Compilatie mislukt.', logs: combinedLogs });
-            }
-        });
-    });
-};
-
 app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
-  
   const documents = await Document.find({ project: project._id, isFolder: false });
   try {
       const result: any = await compileProject(project, documents, req.body);
-      if (result.pdfPath) {
-          res.sendFile(result.pdfPath);
-      } else {
-          // This handles the case where compileProject returned a success object but without a PDF path (e.g. the mainFile check)
-          res.status(400).json(result);
-      }
+      if (result.pdfPath) res.sendFile(result.pdfPath);
+      else res.status(400).json(result);
   } catch (err: any) {
-      // Ensure we send a proper JSON object even if it's an Error instance
-      if (err instanceof Error) {
-          res.status(500).json({ error: err.message, logs: err.stack });
-      } else {
-          res.status(500).json(err);
-      }
+      res.status(500).json(err instanceof Error ? { error: err.message, logs: err.stack } : err);
   }
 });
 
-// SyncTeX API
 app.get('/api/projects/:id/synctex', authenticate, async (req: any, res) => {
     const { line, file } = req.query;
     const synctexFile = path.join('/tmp', `synctex_${req.params.id}.gz`);
     if (!fs.existsSync(synctexFile)) return res.status(404).send('SyncTeX file not found');
-
-    const command = `synctex view -i ${line}:0:${file} -o dummy.pdf`;
-    exec(command, { cwd: '/tmp' }, (error, stdout) => {
+    exec(`synctex view -i ${line}:0:${file} -o dummy.pdf`, { cwd: '/tmp' }, (error, stdout) => {
         if (error) return res.status(500).send('SyncTeX error');
-        const pageMatch = stdout.match(/Page:(\d+)/);
-        const yMatch = stdout.match(/y:([\d.]+)/);
-        if (pageMatch) {
-            res.json({
-                page: parseInt(pageMatch[1]),
-                y: yMatch ? parseFloat(yMatch[1]) : 0
-            });
-        } else {
-            res.status(404).send('Position not found');
-        }
+        const pageMatch = stdout.match(/Page:(\d+)/), yMatch = stdout.match(/y:([\d.]+)/);
+        if (pageMatch) res.json({ page: parseInt(pageMatch[1]), y: yMatch ? parseFloat(yMatch[1]) : 0 });
+        else res.status(404).send('Position not found');
     });
 });
 
@@ -433,32 +347,21 @@ io.on('connection', (socket) => {
   });
 });
 
-// --- CLEANUP TASK ---
 const cleanupOldProjects = () => {
     const baseDir = fs.existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
     const dirs = fs.readdirSync(baseDir);
-    const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-
+    const now = Date.now(), maxAge = 24 * 60 * 60 * 1000;
     for (const dir of dirs) {
         if (dir.startsWith('workshop_project_') || dir.startsWith('workshop_cache_')) {
             const fullPath = path.join(baseDir, dir);
             try {
                 const stats = fs.statSync(fullPath);
-                const age = now - Math.max(stats.atimeMs, stats.mtimeMs);
-                if (age > maxAge) {
-                    console.log(`🧹 Cleaning up old project directory: ${dir}`);
-                    fs.rmSync(fullPath, { recursive: true, force: true });
-                }
-            } catch (err) {
-                console.error(`❌ Error during cleanup of ${dir}:`, err);
-            }
+                if (now - Math.max(stats.atimeMs, stats.mtimeMs) > maxAge) fs.rmSync(fullPath, { recursive: true, force: true });
+            } catch (err) {}
         }
     }
 };
-setInterval(cleanupOldProjects, 60 * 60 * 1000); // Run every hour
-cleanupOldProjects(); // Run once at start
+setInterval(cleanupOldProjects, 60 * 60 * 1000);
+cleanupOldProjects();
 
-if (!process.env.NO_LISTEN) {
-    httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
-}
+if (!process.env.NO_LISTEN) httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
