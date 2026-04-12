@@ -278,45 +278,37 @@ export const compileProject = async (project: any, documents: any[], options: an
         };
     }
 
-    // Use a fixed job name internally for consistency
+    // Use a fixed job name internally for consistency, but keep original filename for source to preserve relative paths
     const jobName = '__main__';
-    const mainDir = path.dirname(mainFile);
-    const compileDir = path.join(workDir, mainDir);
-    const ext = path.extname(mainFile);
-    const compilationTarget = `${jobName}${ext}`;
-    const targetPath = path.join(compileDir, compilationTarget);
+    const compilationTarget = mainFile;
+    const targetPath = path.join(workDir, compilationTarget);
 
-    const absLogPath = path.join(compileDir, `${jobName}.log`);
-    const absSynctexPath = path.join(compileDir, `${jobName}.synctex.gz`);
-    const absActualPdfPath = path.join(compileDir, `${jobName}.pdf`);
+    const absLogPath = path.join(workDir, `${jobName}.log`);
+    const absSynctexPath = path.join(workDir, `${jobName}.synctex.gz`);
+    const absActualPdfPath = path.join(workDir, `${jobName}.pdf`);
+    const absFdbPath = path.join(workDir, `${jobName}.fdb_latexmk`);
+    const absFlsPath = path.join(workDir, `${jobName}.fls`);
 
     // Clean up old output files
-    if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-    if (fs.existsSync(absActualPdfPath)) fs.unlinkSync(absActualPdfPath);
-    if (fs.existsSync(absLogPath)) fs.unlinkSync(absLogPath);
-    if (fs.existsSync(absSynctexPath)) fs.unlinkSync(absSynctexPath);
+    [pdfPath, absActualPdfPath, absLogPath, absSynctexPath, absFdbPath, absFlsPath].forEach(p => {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+    });
 
-    // Prepare compilation target in the same directory as the original main file to preserve relative paths
-    let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
-    if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
-        // Find a safe spot for endpreamble: BEFORE packages that load native fonts or any input/include
-        const problematicRegex = /(\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{)/i;
-        
-        // Add safety definition at the very top (mylatexformat ignores things before \documentclass)
-        targetContent = '\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\n' + targetContent;
-
-        const marker = '\n\\endpreamble\n';
-        
-        if (problematicRegex.test(targetContent)) {
-            targetContent = targetContent.replace(problematicRegex, `${marker}$1`);
-        } else {
-            targetContent = targetContent.replace(/\\begin\s*\{document\}/i, `${marker}\\begin{document}`);
+    // Inject preamble marker if needed
+    if (project.type === 'latex' && usePreamble) {
+        let targetContent = fs.readFileSync(targetPath, 'utf8');
+        if (!targetContent.includes('endpreamble')) {
+            const problematicRegex = /(\\usepackage\s*\{(?:fontspec|polyglossia|unicode-math)\}|\\input\s*\{|\\include\s*\{)/i;
+            const marker = '\n\\csname endpreamble\\endcsname\n';
+            
+            if (problematicRegex.test(targetContent)) {
+                targetContent = targetContent.replace(problematicRegex, `${marker}$1`);
+            } else {
+                targetContent = targetContent.replace(/\\begin\s*\{document\}/i, `${marker}\\begin{document}`);
+            }
+            fs.writeFileSync(targetPath, targetContent);
         }
     }
-    console.log('--- TARGET CONTENT HEAD ---');
-    console.log(targetContent.slice(0, 500));
-    console.log('---------------------------');
-    fs.writeFileSync(targetPath, targetContent);
 
     let command = '';
     const env = { ...process.env, TYPST_CACHE_DIR: cacheDir };
@@ -327,9 +319,9 @@ export const compileProject = async (project: any, documents: any[], options: an
         command = `pandoc "${compilationTarget}" -o "${absActualPdfPath}"`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        // Include compiler name in fmt name to avoid engine conflicts
         const fmtName = `${jobName}_${compiler}`;
-        const fmtPath = path.join(compileDir, `${fmtName}.fmt`);
+        const fmtPath = path.join(workDir, `${fmtName}.fmt`);
+        let dumpSuccess = false;
         
         if (usePreamble) {
             let shouldRegenerate = !fs.existsSync(fmtPath);
@@ -340,36 +332,31 @@ export const compileProject = async (project: any, documents: any[], options: an
 
             if (shouldRegenerate) {
                 const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
-                await new Promise((resolve) => {
-                    exec(dumpCmd, { cwd: compileDir, env }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.error('Preamble dump failed!');
-                            console.error('Command:', dumpCmd);
-                            console.error('STDOUT:', stdout);
-                            console.error('STDERR:', stderr);
-                        }
-                        resolve(true);
+                dumpSuccess = await new Promise((resolve) => {
+                    exec(dumpCmd, { cwd: workDir, env }, (error) => {
+                        resolve(!error);
                     });
                 });
+            } else {
+                dumpSuccess = true;
             }
         }
 
-        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `-fmt "${fmtName}"` : '';
+        const fmtFlag = (usePreamble && dumpSuccess && fs.existsSync(fmtPath)) ? `-fmt="${fmtName}"` : '';
         if (mode === 'draft') {
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname="${jobName}" "${compilationTarget}"`;
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname="${jobName}" "${compilationTarget}"`.replace(/\s+/g, ' ');
         } else {
             let latexmkCompiler = '-pdf';
             if (project.compiler === 'xelatex') latexmkCompiler = '-pdfxe';
             else if (project.compiler === 'lualatex') latexmkCompiler = '-pdflua';
             
-            // Simpler flags are more robust
-            const latexmkFmt = fmtFlag ? `-latexoption="${fmtFlag}"` : '';
-            command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`;
+            const latexmkFmt = fmtFlag ? `-latexoption='${fmtFlag}'` : '';
+            command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`.replace(/\s+/g, ' ');
         }
     }
 
     return new Promise((resolve, reject) => {
-        exec(command, { cwd: compileDir, timeout: 60000, env }, (error, stdout, stderr) => {
+        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
             let combinedLogs = "";
             if (error) {
                 combinedLogs += `--- EXECUTION ERROR ---\n${error.message}\n\n`;
