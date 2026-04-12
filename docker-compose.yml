@@ -9,6 +9,7 @@ services:
   backend:
     build: ./server
     container_name: latexworkshop-backend
+    shm_size: '1gb'
     environment:
       - MONGO_URI=mongodb://mongodb:27017/latexworkshop
       - PORT=3001
