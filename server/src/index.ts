@@ -281,21 +281,46 @@ const compileProject = async (project: any, documents: any[], options: any) => {
         command = `pandoc "${mainFile}" -o main.pdf`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
+        const mainFullPath = path.join(workDir, mainFile);
+        const fmtPath = path.join(workDir, 'preamble.fmt');
         
         if (usePreamble) {
-            const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
-            await new Promise((resolve) => {
-                exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
-            });
+            // Check if we need to regenerate the format file
+            let shouldRegenerate = !fs.existsSync(fmtPath);
+            if (!shouldRegenerate) {
+                const mainStats = fs.statSync(mainFullPath);
+                const fmtStats = fs.statSync(fmtPath);
+                if (mainStats.mtimeMs > fmtStats.mtimeMs) shouldRegenerate = true;
+            }
+
+            if (shouldRegenerate) {
+                // Prepend \csname endpreamble\endcsname if it's not in the file to help mylatexformat
+                let content = fs.readFileSync(mainFullPath, 'utf8');
+                if (!content.includes('endpreamble')) {
+                    const docClassIndex = content.indexOf('\\documentclass');
+                    const beginDocIndex = content.indexOf('\\begin{document}');
+                    if (docClassIndex !== -1 && beginDocIndex !== -1) {
+                        const newContent = content.slice(0, beginDocIndex) + '\\csname endpreamble\\endcsname\n' + content.slice(beginDocIndex);
+                        fs.writeFileSync(mainFullPath, newContent);
+                    }
+                }
+                
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="preamble" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
+                await new Promise((resolve) => {
+                    exec(dumpCmd, { cwd: workDir, env }, () => resolve(true));
+                });
+            }
         }
 
+        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? '&preamble' : '';
         if (mode === 'draft') {
-            const fmtFlag = (usePreamble && fs.existsSync(path.join(workDir, 'preamble.fmt'))) ? '-fmt preamble' : '';
-            command = `${compiler} -interaction=nonstopmode -synctex=1 -draftmode ${fmtFlag} -jobname=main "${mainFile}"`;
+            const fmtOption = fmtFlag ? `-fmt preamble` : '';
+            command = `${compiler} -interaction=nonstopmode -synctex=1 -draftmode ${fmtOption} -jobname=main "${mainFile}"`;
         } else {
             const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-            const fmtFlag = (usePreamble && fs.existsSync(path.join(workDir, 'preamble.fmt'))) ? '-latexoption="-fmt preamble"' : '';
-            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${fmtFlag} "${mainFile}"`;
+            // latexmk needs to be told how to use the custom format
+            const latexmkFmt = fmtFlag ? `-latexoption="-fmt preamble"` : '';
+            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname=main -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
         }
     }
 
