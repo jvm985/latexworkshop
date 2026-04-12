@@ -322,22 +322,32 @@ export const compileProject = async (project: any, documents: any[], options: an
             }
 
             if (shouldRegenerate) {
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" mylatexformat.ltx "${compilationTarget}"`;
-                await new Promise((resolve) => {
-                    exec(dumpCmd, { cwd: compileDir, env }, () => resolve(true));
+                // Use &compiler to load the base format (e.g. &xelatex)
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
+                await new Promise((resolve, reject) => {
+                    exec(dumpCmd, { cwd: compileDir, env }, (error, stdout, stderr) => {
+                        if (error) {
+                            console.error('Preamble dump failed:', stderr);
+                            // We don't reject here to allow normal compilation to try anyway, 
+                            // but we could. For now, just log.
+                        }
+                        resolve(true);
+                    });
                 });
             }
         }
 
-        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `&${jobName}` : '';
+        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `-fmt "${jobName}"` : '';
         if (mode === 'draft') {
-            const fmtOption = fmtFlag ? `-fmt "${jobName}"` : '';
-            // Removed -draftmode so a PDF is still generated (single pass fast compile)
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtOption} -jobname="${jobName}" "${compilationTarget}"`;
+            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname="${jobName}" "${compilationTarget}"`;
         } else {
-            const latexmkCompiler = project.compiler === 'pdflatex' ? 'pdf' : project.compiler;
-            const latexmkFmt = fmtFlag ? `-latexoption="-fmt ${jobName}"` : '';
-            command = `latexmk -${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`;
+            let latexmkCompiler = '-pdf';
+            if (project.compiler === 'xelatex') latexmkCompiler = '-pdfxe';
+            else if (project.compiler === 'lualatex') latexmkCompiler = '-pdflua';
+            
+            // Pass the format to the underlying compiler via the appropriate latexmk option
+            const latexmkFmt = fmtFlag ? `-latexoption="${fmtFlag}" -xeopt="${fmtFlag}" -luaopt="${fmtFlag}"` : '';
+            command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`;
         }
     }
 
