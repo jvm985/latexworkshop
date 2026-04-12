@@ -28,6 +28,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+# Copy custom fonts and update cache
+COPY fonts/ /usr/share/fonts/truetype/custom/
+RUN fc-cache -f -v
+
 COPY . .
 RUN npm run build
 
