@@ -299,7 +299,21 @@ export const compileProject = async (project: any, documents: any[], options: an
     // Prepare compilation target in the same directory as the original main file to preserve relative paths
     let targetContent = fs.readFileSync(path.join(workDir, mainFile), 'utf8');
     if (project.type === 'latex' && usePreamble && !targetContent.includes('endpreamble')) {
-        targetContent = targetContent.replace(/\\begin\{document\}/, '\\csname endpreamble\\endcsname\n\\begin{document}');
+        // Find a safe spot for endpreamble: BEFORE packages that load native fonts (fontspec is problematic for \dump)
+        const fontspecIndex = targetContent.indexOf('\\usepackage{fontspec}');
+        const polyglossiaIndex = targetContent.indexOf('\\usepackage{polyglossia}');
+        const unicodeMathIndex = targetContent.indexOf('\\usepackage{unicode-math}');
+        
+        let insertIndex = targetContent.indexOf('\\begin{document}');
+        const firstFontPackage = [fontspecIndex, polyglossiaIndex, unicodeMathIndex].filter(i => i !== -1).sort((a, b) => a - b)[0];
+        
+        if (firstFontPackage !== undefined && firstFontPackage < insertIndex) {
+            insertIndex = firstFontPackage;
+        }
+
+        if (insertIndex !== -1) {
+            targetContent = targetContent.slice(0, insertIndex) + '\\csname endpreamble\\endcsname\n' + targetContent.slice(insertIndex);
+        }
     }
     fs.writeFileSync(targetPath, targetContent);
 
@@ -312,7 +326,9 @@ export const compileProject = async (project: any, documents: any[], options: an
         command = `pandoc "${compilationTarget}" -o "${absActualPdfPath}"`;
     } else {
         const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const fmtPath = path.join(compileDir, `${jobName}.fmt`);
+        // Include compiler name in fmt name to avoid engine conflicts
+        const fmtName = `${jobName}_${compiler}`;
+        const fmtPath = path.join(compileDir, `${fmtName}.fmt`);
         
         if (usePreamble) {
             let shouldRegenerate = !fs.existsSync(fmtPath);
@@ -322,22 +338,17 @@ export const compileProject = async (project: any, documents: any[], options: an
             }
 
             if (shouldRegenerate) {
-                // Use &compiler to load the base format (e.g. &xelatex)
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${jobName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
-                await new Promise((resolve, reject) => {
+                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${compilationTarget}"`;
+                await new Promise((resolve) => {
                     exec(dumpCmd, { cwd: compileDir, env }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.error('Preamble dump failed:', stderr);
-                            // We don't reject here to allow normal compilation to try anyway, 
-                            // but we could. For now, just log.
-                        }
+                        if (error) console.error('Preamble dump failed:', stderr);
                         resolve(true);
                     });
                 });
             }
         }
 
-        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `-fmt "${jobName}"` : '';
+        const fmtFlag = (usePreamble && fs.existsSync(fmtPath)) ? `-fmt "${fmtName}"` : '';
         if (mode === 'draft') {
             command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} -jobname="${jobName}" "${compilationTarget}"`;
         } else {
@@ -345,8 +356,8 @@ export const compileProject = async (project: any, documents: any[], options: an
             if (project.compiler === 'xelatex') latexmkCompiler = '-pdfxe';
             else if (project.compiler === 'lualatex') latexmkCompiler = '-pdflua';
             
-            // Pass the format to the underlying compiler via the appropriate latexmk option
-            const latexmkFmt = fmtFlag ? `-latexoption="${fmtFlag}" -xeopt="${fmtFlag}" -luaopt="${fmtFlag}"` : '';
+            // Simpler flags are more robust
+            const latexmkFmt = fmtFlag ? `-latexoption="${fmtFlag}"` : '';
             command = `latexmk ${latexmkCompiler} -interaction=nonstopmode -jobname="${jobName}" -f -synctex=1 ${latexmkFmt} "${compilationTarget}"`;
         }
     }
