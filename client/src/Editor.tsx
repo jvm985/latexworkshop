@@ -166,9 +166,12 @@ export default function EditorView() {
     const pType = typeOverride || project?.type || 'latex';
     try {
       const currentDoc = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current) : null;
+      // CRITICAL: Get latest content directly from editor to avoid React state lag
+      const latestContent = editorRef.current ? editorRef.current.getValue() : currentDoc?.content;
+      
       const res = await axios.post(`${API_URL}/compile/${id}`, {
           preferredMain: currentDoc?.name,
-          currentContent: currentDoc?.content,
+          currentContent: latestContent,
           currentFileId: currentDoc?._id,
           mode: compileMode,
           usePreamble: usePreamble
