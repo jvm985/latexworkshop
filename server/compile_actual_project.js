@@ -38,6 +38,12 @@ async function run() {
     const documents = await Document.find({ project: projectID, isFolder: false });
     console.log(`Found ${documents.length} non-folder documents.`);
 
+    // Fix the includeonly issue for testing
+    const mainDoc = documents.find(d => d.name === '5_geschiedenis.tex');
+    if (mainDoc) {
+        mainDoc.content = mainDoc.content.replace(/\\includeonly\{[\s\S]*?\}/, '% includeonly removed for testing');
+    }
+
     const optionsWithPreamble = {
         preferredMain: '5_geschiedenis.tex',
         mode: 'normal',
