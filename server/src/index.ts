@@ -442,10 +442,18 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         setwd("${workDir}")
         options(warn=-1)
         
-        # Run user code
-        tryCatch({
-          ${codeToRun}
-        }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+        # Run user code expression by expression to mimic console behavior
+        .lw_code <- ${JSON.stringify(codeToRun)}
+        .lw_exprs <- tryCatch(parse(text = .lw_code), error = function(e) { cat("PARSE ERROR:", e$message, "\\n"); NULL })
+        
+        if (!is.null(.lw_exprs)) {
+            for (.lw_i in seq_along(.lw_exprs)) {
+                tryCatch({
+                    .lw_res <- withVisible(eval(.lw_exprs[[.lw_i]], envir = .GlobalEnv))
+                    if (.lw_res$visible) print(.lw_res$value)
+                }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+            }
+        }
         
         # Finalize plots
         while(dev.cur() > 1) dev.off()
@@ -455,7 +463,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         var_list <- list()
         all_objs <- ls(all.names=FALSE)
         for (v in all_objs) {
-          if (v %in% c("var_list", "all_objs", "v", "val")) next
+          if (v %in% c("var_list", "all_objs", "v", "val") || grepl("^\\\\.lw_", v)) next
           val <- get(v)
           if (!is.function(val) && !is.environment(val)) {
             var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
