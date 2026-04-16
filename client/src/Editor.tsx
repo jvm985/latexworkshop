@@ -11,7 +11,7 @@ import {
   Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
-  Zap, Layers, Eraser, Database
+  Zap, Layers, Eraser, Database, Link
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
@@ -92,6 +92,12 @@ export default function EditorView() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFullLogs, setShowFullLogs] = useState(false);
   const [showCompileOptions, setShowCompileOptions] = useState(false);
+  
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<any[]>([]);
+  const [browsingProject, setBrowsingProject] = useState<any>(null);
+  const [browsingDocs, setBrowsingDocs] = useState<any[]>([]);
+  const [linkTargetDoc, setLinkTargetDoc] = useState<any>(null);
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [editorWidth, setEditorWidth] = useState(50);
@@ -220,12 +226,16 @@ export default function EditorView() {
       if (isR) {
           setRResult((prev: any) => ({
               ...res.data,
-              stdout: (prev?.stdout || '') + res.data.stdout + (res.data.stdout.endsWith('\n') ? '' : '\n')
+              stdout: (prev?.stdout || '') + res.data.stdout + (res.data.stdout.endsWith('\n') ? '' : '\n'),
+              plots: [...(prev?.plots || []), ...(res.data.plots || [])]
           }));
           setPdfUrl(null);
           if (res.data.plots && res.data.plots.length > 0) {
               setActiveTab('plots');
-              setCurrentPlotPlotIndex(res.data.plots.length - 1);
+              setRResult((finalState: any) => {
+                  setCurrentPlotPlotIndex(finalState.plots.length - 1);
+                  return finalState;
+              });
           }
       } else {
           const blob = new Blob([res.data], { type: 'application/pdf' });
@@ -393,7 +403,28 @@ export default function EditorView() {
       setProject(res.data);
   };
 
-  const addFile = async (isFolder: boolean, targetDoc?: any) => {
+  const createLink = async (targetProjectId: string, targetDoc: any) => {
+      const parent = contextMenu?.doc?.isFolder ? contextMenu.doc : null;
+      const targetPath = parent ? (parent.path + parent.name + '/') : '/';
+
+      try {
+          await axios.post(`${API_URL}/projects/${id}/links`, {
+              targetProjectId,
+              targetDocumentId: targetDoc._id,
+              name: targetDoc.name,
+              path: targetPath
+          }, { headers: { Authorization: `Bearer ${token}` } });
+          setShowLinkModal(false);
+          setBrowsingProject(null);
+          setBrowsingDocs([]);
+          fetchAll();
+      } catch (e: any) {
+          alert(e.response?.data || 'Failed to create link.');
+      }
+  };
+
+  const addFile = async (isFolder: boolean, parent?: any) => {
+
     const name = prompt(`Enter ${isFolder ? 'folder' : 'file'} name:`);
     if (!name) return;
     let path = "";
@@ -558,7 +589,7 @@ export default function EditorView() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : (doc?.isBinary ? <ImageIcon size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>)}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: doc?.isLink ? 'italic' : 'normal' }}>{key}</span>
                 {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
             </div>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -608,6 +639,11 @@ export default function EditorView() {
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Explorer</span>
             <div style={{ display: 'flex', gap: '8px' }}>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={async () => {
+                  const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+                  setAvailableProjects(res.data.filter((p: any) => p._id !== id));
+                  setShowLinkModal(true);
+              }} title="Link from other project"><Link size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(false)} title="New File"><FilePlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => addFile(true)} title="New Folder"><FolderPlus size={14}/></button>
               <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0 }} onClick={() => fileInputRef.current?.click()} title="Upload Files"><Upload size={14}/></button>
@@ -819,5 +855,52 @@ export default function EditorView() {
       {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Default Compiler (for LaTeX)</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select><div style={{ marginTop: '12px', fontSize: '11px', color: '#666', lineHeight: '1.5' }}>Tip: specify main LaTeX file with:<br/><code>% !TEX root = main.tex</code></div></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
       {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
     </div>
+
+      {showLinkModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+              <div style={{ background: '#252526', width: '600px', height: '500px', borderRadius: '16px', border: '1px solid #333', padding: '32px', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                      <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><Link color="#0071e3"/> Link from other project</h2>
+                      <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowLinkModal(false)}/>
+                  </div>
+                  
+                  <div style={{ flex: 1, display: 'flex', gap: '20px', minHeight: 0 }}>
+                      <div style={{ flex: 1, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}>
+                          <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Projects</div>
+                          {availableProjects.map(p => (
+                              <div key={p._id} onClick={async () => {
+                                  const res = await axios.get(`${API_URL}/projects/${p._id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                  setBrowsingProject(p);
+                                  setBrowsingDocs(res.data.documents);
+                              }} style={{ padding: '8px', cursor: 'pointer', borderRadius: '4px', background: browsingProject?._id === p._id ? '#0071e3' : 'transparent', fontSize: '13px' }}>
+                                  {p.name}
+                              </div>
+                          ))}
+                      </div>
+                      <div style={{ flex: 2, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}>
+                          <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Files & Folders</div>
+                          {browsingDocs.map(d => (
+                              <div key={d._id} onClick={() => setLinkTargetDoc(d)} style={{ padding: '6px 8px', cursor: 'pointer', borderRadius: '4px', background: linkTargetDoc?._id === d._id ? '#333' : 'transparent', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', color: d.isFolder ? '#dcb67a' : '#aaa' }}>
+                                  {d.isFolder ? <Folder size={14}/> : <FileText size={14}/>}
+                                  <span>{d.path}{d.name}</span>
+                              </div>
+                          ))}
+                          {!browsingProject && <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '12px' }}>Select a project first</div>}
+                      </div>
+                  </div>
+
+                  <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                      <button onClick={() => setShowLinkModal(false)} style={{ background: '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600 }}>Cancel</button>
+                      <button 
+                        disabled={!linkTargetDoc} 
+                        onClick={() => createLink(browsingProject._id, linkTargetDoc)}
+                        style={{ background: linkTargetDoc ? '#0071e3' : '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600, cursor: linkTargetDoc ? 'pointer' : 'default' }}
+                      >
+                        Link Item
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
   );
 }

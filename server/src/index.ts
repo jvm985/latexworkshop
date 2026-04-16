@@ -63,9 +63,59 @@ const documentSchema = new mongoose.Schema({
   binaryData: { type: Buffer },
   isBinary: { type: Boolean, default: false },
   isFolder: { type: Boolean, default: false },
-  isMain: { type: Boolean, default: false }
+  isMain: { type: Boolean, default: false },
+  isLink: { type: Boolean, default: false },
+  linkedProject: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  linkedDocument: { type: mongoose.Schema.Types.ObjectId, ref: 'Document' }
 });
 const Document = mongoose.model('Document', documentSchema);
+
+async function resolveDocuments(projectId: string, user: any, visited = new Set()) {
+    if (visited.has(projectId.toString())) return [];
+    visited.add(projectId.toString());
+
+    const docs = await Document.find({ project: projectId }).lean();
+    let resolved: any[] = [];
+
+    for (const doc of docs) {
+        if (doc.isLink && doc.linkedDocument) {
+            // Check access to linked project
+            const linkedProj = await Project.findOne({ 
+                _id: doc.linkedProject, 
+                $or: [{ owner: user._id }, { 'sharedWith.email': user.email }] 
+            });
+            if (!linkedProj) continue; // No access
+
+            const targetDoc: any = await Document.findById(doc.linkedDocument).lean();
+            if (!targetDoc) continue;
+
+            // Add the link itself (with target's info but project's path)
+            resolved.push({ ...targetDoc, _id: doc._id, project: doc.project, path: doc.path, name: doc.name, isLink: true, originalId: targetDoc._id });
+
+            if (targetDoc.isFolder) {
+                // Pull in children recursively
+                const children = await Document.find({ 
+                    project: doc.linkedProject, 
+                    path: new RegExp(`^${targetDoc.path}${targetDoc.name}/`) 
+                }).lean();
+                
+                for (const child of children) {
+                    const relativePath = child.path.substring(targetDoc.path.length + targetDoc.name.length + 1);
+                    resolved.push({ 
+                        ...child, 
+                        _id: `${doc._id}_${child._id}`, // Virtual ID
+                        project: doc.project, 
+                        path: `${doc.path}${doc.name}/${relativePath}`,
+                        isLink: true 
+                    });
+                }
+            }
+        } else {
+            resolved.push(doc);
+        }
+    }
+    return resolved;
+}
 
 // --- R SESSION MANAGEMENT ---
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
@@ -134,8 +184,18 @@ export const compileProject = async (project: any, documents: any[], options: an
         const fullPath = path.join(workDir, doc.path, doc.name);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
         
-        const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
-        const data = doc.isBinary && doc.binaryData ? doc.binaryData : Buffer.from(content || '');
+        let content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+        let binaryData = doc.binaryData;
+
+        if (doc.isLink && doc.linkedDocument) {
+            const target: any = await Document.findById(doc.linkedDocument).lean();
+            if (target) {
+                content = target.content;
+                binaryData = target.binaryData;
+            }
+        }
+
+        const data = (doc.isBinary || (doc.isLink && binaryData)) ? binaryData : Buffer.from(content || '');
         
         // Write and force flush to OS buffer
         fs.writeFileSync(fullPath, data);
@@ -248,9 +308,37 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
 app.get('/api/projects/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   if (!project) return res.status(404).send('Not found');
-  const documents = await Document.find({ project: project._id }, { binaryData: 0 });
+  const documents = await resolveDocuments(project._id as any, req.user);
   res.json({ project, documents });
 });
+
+app.post('/api/projects/:id/links', authenticate, async (req: any, res) => {
+    const { targetProjectId, targetDocumentId, name, path } = req.body;
+
+    // Check target access
+    const targetProj = await Project.findOne({ 
+        _id: targetProjectId, 
+        $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] 
+    });
+    if (!targetProj) return res.status(403).send('No access to target project');
+
+    // Circularity check: does target project already link to THIS project?
+    const targetDocs = await resolveDocuments(targetProjectId, req.user);
+    if (targetDocs.some(d => d.project.toString() === req.params.id)) {
+        return res.status(400).send('Circular reference detected');
+    }
+
+    const link = await Document.create({
+        project: req.params.id,
+        name,
+        path,
+        isLink: true,
+        linkedProject: targetProjectId,
+        linkedDocument: targetDocumentId
+    });
+    res.json(link);
+});
+
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
   const { name, path, isFolder, isBinary, content, binaryData } = req.body;
@@ -328,8 +416,15 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
 
       if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
       for (const doc of documents) {
-          const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
-          fs.writeFileSync(path.join(workDir, doc.name), content || '');
+          if (doc.isFolder) continue;
+          let content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+          
+          if (doc.isLink && doc.linkedDocument) {
+              const target: any = await Document.findById(doc.linkedDocument).lean();
+              if (target) content = target.content;
+          }
+
+          fs.writeFileSync(path.join(workDir, doc.path, doc.name), content || '');
       }
 
       // Clear previous plots for this user
