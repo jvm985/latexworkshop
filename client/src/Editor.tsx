@@ -441,6 +441,9 @@ export default function EditorView() {
       const base = targetDoc || activeDoc;
       if (base && base.isFolder) basePath = base.path + base.name + "/";
       else if (base && base.path) basePath = base.path;
+      
+      const textExtensions = ['.tex', '.typ', '.md', '.R', '.r', '.Rmd', '.txt', '.bib', '.cls', '.sty', '.json', '.css', '.js', '.ts', '.html'];
+
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
           const relativePath = (file as any).webkitRelativePath || "";
@@ -451,14 +454,29 @@ export default function EditorView() {
               name = parts.pop()!;
               finalPath = basePath + parts.join('/') + (parts.length > 0 ? "/" : "");
           }
+          
+          const isBinary = !textExtensions.some(ext => name.toLowerCase().endsWith(ext));
           const reader = new FileReader();
+          
           reader.onload = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: true, path: finalPath, binaryData: base64 }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
-                  if (i === files.length - 1) fetchAll();
-              });
+              if (isBinary) {
+                  const base64 = (reader.result as string).split(',')[1];
+                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: true, path: finalPath, binaryData: base64 }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
+                      if (i === files.length - 1) fetchAll();
+                  });
+              } else {
+                  const content = reader.result as string;
+                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: false, path: finalPath, content }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
+                      if (i === files.length - 1) fetchAll();
+                  });
+              }
           };
-          reader.readAsDataURL(file);
+
+          if (isBinary) {
+              reader.readAsDataURL(file);
+          } else {
+              reader.readAsText(file);
+          }
       }
   };
 
@@ -503,7 +521,7 @@ export default function EditorView() {
           const rect = document.getElementById('results-container')?.getBoundingClientRect();
           if (rect) {
               const newOutputHeight = e.clientY - rect.top;
-              setOutputHeight(Math.max(50, Math.min(resultsHeight - 50, newOutputHeight)));
+              setOutputHeight(Math.max(50, Math.min(rect.height - 50, newOutputHeight)));
           }
       }
     };
