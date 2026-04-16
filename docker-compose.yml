@@ -17,6 +17,10 @@ services:
       - NODE_ENV=test
     volumes:
       - /opt/irishof/1-latex/fonts:/usr/share/fonts/truetype:ro
+      - /opt/irishof/2-rstudio/r-site-library:/usr/local/lib/R/site-library
+      - /home:/home
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
     depends_on:
       - mongodb
     restart: always

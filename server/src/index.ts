@@ -124,6 +124,7 @@ const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, 
 const getRSession = (userId: string) => {
   if (userSessions.has(userId)) return userSessions.get(userId)!;
 
+  // Use the shared site library and standard interactive settings
   const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
   const session = { process: rProcess, output: '' };
   
@@ -134,6 +135,7 @@ const getRSession = (userId: string) => {
     session.output += data.toString(); 
   });
   
+  rProcess.stdin.write(`.libPaths(c("/usr/local/lib/R/site-library", .libPaths()))\n`);
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/lw_plot_${userId}_%03d.png", width = 800, height = 600)
   })\n`);
