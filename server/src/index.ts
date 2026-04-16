@@ -337,7 +337,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
           try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {}
       });
 
-      session.output = ''; 
+      session.output = '';
       const sentinel = `SENTINEL_DONE_${Date.now()}`;
       const scriptPath = `/tmp/lw_script_${userId}.R`;
       

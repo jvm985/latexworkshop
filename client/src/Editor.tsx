@@ -116,6 +116,7 @@ export default function EditorView() {
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
   const activeDocIdRef = useRef<string | null>(null);
+  const consoleRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const viewerInstanceRef = useRef<any>(null);
@@ -174,14 +175,40 @@ export default function EditorView() {
     const pType = typeOverride || project?.type || 'latex';
     try {
       const currentDoc = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current) : null;
-      // CRITICAL: Get latest content directly from editor to avoid React state lag
-      const latestContent = editorRef.current ? editorRef.current.getValue() : currentDoc?.content;
+      const isR = currentDoc?.name.endsWith('.R') || currentDoc?.name.endsWith('.r');
       
-      const isR = pType === 'R';
+      let contentToRun = editorRef.current ? editorRef.current.getValue() : currentDoc?.content;
+
+      if (isR && editorRef.current) {
+          const selection = editorRef.current.getSelection();
+          const model = editorRef.current.getModel();
+          if (selection && !selection.isEmpty()) {
+              contentToRun = model.getValueInRange(selection);
+          } else {
+              const position = editorRef.current.getPosition();
+              contentToRun = model.getLineContent(position.lineNumber);
+              // Move cursor to next line
+              const lineCount = model.getLineCount();
+              if (position.lineNumber < lineCount) {
+                  editorRef.current.setPosition({ lineNumber: position.lineNumber + 1, column: 1 });
+                  editorRef.current.revealLine(position.lineNumber + 1);
+              }
+              editorRef.current.focus();
+          }
+          if (!contentToRun.trim()) {
+              setCompiling(false);
+              return;
+          }
+          // Echo the command to console
+          setRResult((prev: any) => ({
+              ...prev,
+              stdout: (prev?.stdout || '') + (prev?.stdout?.endsWith('\n') || !prev?.stdout ? '' : '\n') + '> ' + contentToRun + '\n'
+          }));
+      }
 
       const res = await axios.post(`${API_URL}/compile/${id}`, {
           preferredMain: currentDoc?.name,
-          currentContent: latestContent,
+          currentContent: contentToRun,
           currentFileId: currentDoc?._id,
           mode: compileMode,
           usePreamble: usePreamble
@@ -191,7 +218,10 @@ export default function EditorView() {
       });
       
       if (isR) {
-          setRResult(res.data);
+          setRResult((prev: any) => ({
+              ...res.data,
+              stdout: (prev?.stdout || '') + res.data.stdout + (res.data.stdout.endsWith('\n') ? '' : '\n')
+          }));
           setPdfUrl(null);
           if (res.data.plots && res.data.plots.length > 0) {
               setActiveTab('plots');
@@ -234,6 +264,12 @@ export default function EditorView() {
       }
     } finally { setCompiling(false); }
   };
+
+  useEffect(() => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+    }
+  }, [rResult]);
 
   const fetchAll = async () => {
     try {
@@ -669,7 +705,7 @@ export default function EditorView() {
                                     <span>Console Output</span>
                                     <button onClick={() => setRResult((prev: any) => prev ? ({ ...prev, stdout: '' }) : null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}><Eraser size={10}/> Clear</button>
                                 </div>
-                                <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#000' }}>
+                                <div ref={consoleRef} style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#000' }}>
                                     <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout || 'No output.'}</pre>
                                 </div>
                             </div>
