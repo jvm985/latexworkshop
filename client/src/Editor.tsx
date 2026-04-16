@@ -663,56 +663,8 @@ export default function EditorView() {
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                        {showErrorView && logs ? (
-                            <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                                    <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', margin: 0 }}><AlertCircle /> Compilation Output</h2>
-                                    <button onClick={() => setShowErrorView(false)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Back to PDF</button>
-                                </div>
-                                {logView === 'ordered' && parsedErrors.length > 0 ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                        {parsedErrors.map((err, i) => (
-                                            <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span><span style={{ color: '#888', fontSize: '11px' }}>Line {err.line}</span></div>
-                                                <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : <pre style={{ padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>}
-                                {logView === 'ordered' && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
-                                {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
-                            </div>
-                        ) : (
-                            <div style={{ height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
-                                {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
-                                {pdfUrl ? (
-                                    <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
-                                        <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
-                                            <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
-                                                <Viewer 
-                                                    fileUrl={pdfUrl} 
-                                                    plugins={[zoomPluginInstance]}
-                                                    onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
-                                                    defaultScale={SpecialZoomLevel.PageWidth}
-                                                />
-                                            </div>
-                                        </Worker>
-                                    </div>
-                                ) : !compiling && !logs && !rResult && (
-                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                                        <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                                        <span>PDF Loading...</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {rResult && (
-                        <>
-                        <div onMouseDown={() => isResizingResultsRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111', zIndex: 50 }}></div>
-                        <div id="results-container" style={{ height: `${resultsHeight}px`, background: '#1e1e1e', borderTop: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
+                    {rResult ? (
+                        <div id="results-container" style={{ flex: 1, background: '#1e1e1e', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                             {/* TOP: Output / Console */}
                             <div style={{ height: `${outputHeight}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                 <div style={{ background: '#252526', padding: '4px 12px', fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #333' }}>
@@ -724,7 +676,7 @@ export default function EditorView() {
                             </div>
 
                             {/* MIDDLE: Sub-resizer */}
-                            <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '4px', cursor: 'ns-resize', background: '#333', zIndex: 50 }}></div>
+                            <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111', zIndex: 50 }}></div>
 
                             {/* BOTTOM: Tabs (Plots / Variables) */}
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -762,7 +714,52 @@ export default function EditorView() {
                                 </div>
                             </div>
                         </div>
-                        </>
+                    ) : (
+                        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                            {showErrorView && logs ? (
+                                <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                        <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', margin: 0 }}><AlertCircle /> Compilation Output</h2>
+                                        <button onClick={() => setShowErrorView(false)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Back to PDF</button>
+                                    </div>
+                                    {logView === 'ordered' && parsedErrors.length > 0 ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {parsedErrors.map((err, i) => (
+                                                <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span><span style={{ color: '#888', fontSize: '11px' }}>Line {err.line}</span></div>
+                                                    <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : <pre style={{ padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>}
+                                    {logView === 'ordered' && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
+                                    {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                                </div>
+                            ) : (
+                                <div style={{ height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
+                                    {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
+                                    {pdfUrl ? (
+                                        <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
+                                            <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
+                                                <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+                                                    <Viewer 
+                                                        fileUrl={pdfUrl} 
+                                                        plugins={[zoomPluginInstance]}
+                                                        onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
+                                                        defaultScale={SpecialZoomLevel.PageWidth}
+                                                    />
+                                                </div>
+                                            </Worker>
+                                        </div>
+                                    ) : !compiling && !logs && (
+                                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                                            <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                                            <span>PDF Loading...</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
