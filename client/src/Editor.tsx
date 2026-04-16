@@ -11,7 +11,7 @@ import {
   Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
-  Zap, Layers, Eraser, Database, Image as LucideImage
+  Zap, Layers, Eraser, Database
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
