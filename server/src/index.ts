@@ -441,6 +441,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       const wrappedCode = `
         setwd("${workDir}")
         options(warn=-1)
+        suppressMessages(library(jsonlite, quietly=TRUE))
         
         # Run user code expression by expression to mimic console behavior
         .lw_code <- ${JSON.stringify(codeToRun)}
@@ -450,7 +451,14 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
             for (.lw_i in seq_along(.lw_exprs)) {
                 tryCatch({
                     .lw_res <- withVisible(eval(.lw_exprs[[.lw_i]], envir = .GlobalEnv))
-                    if (.lw_res$visible) print(.lw_res$value)
+                    if (.lw_res$visible) {
+                        if (is.null(.lw_res$value)) {
+                            # NULL often doesn't print in print()
+                            cat("NULL\\n")
+                        } else {
+                            print(.lw_res$value)
+                        }
+                    }
                 }, error = function(e) { cat("ERROR:", e$message, "\\n") })
             }
         }
@@ -461,15 +469,14 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         
         # Silently capture variables
         var_list <- list()
-        all_objs <- ls(all.names=FALSE)
+        all_objs <- ls(all.names=FALSE, envir = .GlobalEnv)
         for (v in all_objs) {
           if (v %in% c("var_list", "all_objs", "v", "val") || grepl("^\\\\.lw_", v)) next
-          val <- get(v)
+          val <- get(v, envir = .GlobalEnv)
           if (!is.function(val) && !is.environment(val)) {
             var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
           }
         }
-        library(jsonlite)
         write_json(var_list, "/tmp/lw_vars_${userId}.json")
       `;
 

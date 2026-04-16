@@ -681,8 +681,8 @@ export default function EditorView() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
-                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (project?.type === 'R' ? 'Run' : (compileMode === 'normal' ? 'Compile' : 'Draft'))}</button>
-                            {project?.type === 'latex' && (
+                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : (compileMode === 'normal' ? 'Compile' : 'Draft'))}</button>
+                            {!activeDoc?.name.match(/\.[Rr]$/) && project?.type === 'latex' && (
                                 <button onClick={(e) => { e.stopPropagation(); setShowCompileOptions(!showCompileOptions); }} style={{ background: 'rgba(0,0,0,0.1)', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '4px 6px', cursor: 'pointer' }}><ChevronDown size={12}/></button>
                             )}
                             {showCompileOptions && (
