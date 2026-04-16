@@ -674,26 +674,34 @@ export default function EditorView() {
             <div style={{ flex: 1, background: '#2d2d2d', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <ZoomOut>
-                            {({ onClick }: RenderZoomOutProps) => (
-                                <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
-                            )}
-                        </ZoomOut>
-                        <ZoomIn>
-                            {({ onClick }: RenderZoomInProps) => (
-                                <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
-                            )}
-                        </ZoomIn>
+                        {!rResult && (
+                            <>
+                            <ZoomOut>
+                                {({ onClick }: RenderZoomOutProps) => (
+                                    <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
+                                )}
+                            </ZoomOut>
+                            <ZoomIn>
+                                {({ onClick }: RenderZoomInProps) => (
+                                    <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
+                                )}
+                            </ZoomIn>
+                            </>
+                        )}
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
-                        {logs && (
-                            <button onClick={() => { navigator.clipboard.writeText(logs); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {copied ? <Check size={14} color="#4ade80"/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy Logs'}
-                            </button>
+                        {!rResult && (
+                            <>
+                            {logs && (
+                                <button onClick={() => { navigator.clipboard.writeText(logs); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {copied ? <Check size={14} color="#4ade80"/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy Logs'}
+                                </button>
+                            )}
+                            <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
+                            <button onClick={() => setShowErrorView(!showErrorView)} style={{ background: showErrorView ? '#0071e3' : '#333', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>{showErrorView ? 'Show PDF' : 'Show Logs'}</button>
+                            {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
+                            </>
                         )}
-                        <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
-                        <button onClick={() => setShowErrorView(!showErrorView)} style={{ background: showErrorView ? '#0071e3' : '#333', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>{showErrorView ? 'Show PDF' : 'Show Logs'}</button>
-                        {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
