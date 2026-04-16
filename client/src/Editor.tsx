@@ -6,12 +6,12 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   Eye, Folder, FilePlus, FolderPlus, 
-  AlertCircle, Share2, X, UserPlus, Shield, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, RefreshCw, Check,
-  Settings, Download, LogOut, Loader, Upload,
+  AlertCircle, X, UserPlus, Shield, User as UserIcon,
+  ChevronDown, ChevronRight, Trash2, CheckCircle2, Check,
+  Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
   List, ScrollText, Edit3, MoreVertical,
-  Zap, Layers
+  Zap, Layers, Eraser, Database, Image as LucideImage
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
@@ -90,7 +90,6 @@ export default function EditorView() {
   const [shareEmail, setShareEmail] = useState('');
   const [sharePerm, setSharePerm] = useState('read');
   const [showSettings, setShowSettings] = useState(false);
-  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [showFullLogs, setShowFullLogs] = useState(false);
   const [showCompileOptions, setShowCompileOptions] = useState(false);
   
@@ -197,8 +196,6 @@ export default function EditorView() {
           if (res.data.plots && res.data.plots.length > 0) {
               setActiveTab('plots');
               setCurrentPlotPlotIndex(res.data.plots.length - 1);
-          } else {
-              setActiveTab('output');
           }
       } else {
           const blob = new Blob([res.data], { type: 'application/pdf' });
@@ -248,18 +245,6 @@ export default function EditorView() {
         switchDoc(main);
       }
     } catch (e) { navigate('/'); }
-  };
-
-  const convertProject = async () => {
-      if (!project) return;
-      if (!confirm(`Convert this project to ${project.type === 'latex' ? 'Typst' : (project.type === 'typst' ? 'LaTeX' : 'LaTeX')}?`)) return;
-      setCompiling(true);
-      try {
-          const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-          setProject(res.data);
-          fetchAll();
-      } catch(e) { alert('Conversion failed.'); }
-      finally { setCompiling(false); }
   };
 
   useEffect(() => {
@@ -564,7 +549,7 @@ export default function EditorView() {
   if (!project) return <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Laden...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowProjectMenu(false); setShowCompileOptions(false); }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowCompileOptions(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
