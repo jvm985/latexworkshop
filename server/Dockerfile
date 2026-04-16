@@ -36,17 +36,17 @@ RUN apt-get update && apt-get install -y \
     cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Install a wide range of useful R packages
-RUN R -e "install.packages(c(\
-    'jsonlite', 'tidyverse', 'tidymodels', 'rmarkdown', \
-    'knitr', 'ggplot2', 'dplyr', 'readr', 'readxl', \
-    'haven', 'lubridate', 'stringr', 'purrr', 'data.table', \
-    'caret', 'randomForest', 'plotly', 'DT', 'RColorBrewer', \
-    'extrafont', 'reshape2', 'zoo', 'xts', 'forecast', \
-    'lme4', 'mgcv', 'survival', 'MASS', 'stringi', \
-    'magrittr', 'feather', 'DBI', 'RSQLite', 'httr', \
-    'xml2', 'rvest' \
-    ), repos='https://cloud.r-project.org')"
+# Install essential R packages for rmarkdown and jsonlite
+RUN R -e "install.packages(c('jsonlite', 'rmarkdown', 'knitr', 'tinytex'), repos='https://cloud.r-project.org')"
+
+# Install plotting and data packages
+RUN R -e "install.packages(c('ggplot2', 'dplyr', 'readr', 'readxl', 'lubridate', 'stringr', 'purrr', 'data.table'), repos='https://cloud.r-project.org')"
+
+# Install additional analysis packages
+RUN R -e "install.packages(c('caret', 'randomForest', 'plotly', 'RColorBrewer', 'reshape2', 'zoo', 'xts', 'forecast'), repos='https://cloud.r-project.org')"
+
+# Install more utilities
+RUN R -e "install.packages(c('lme4', 'mgcv', 'survival', 'MASS', 'stringi', 'magrittr', 'DBI', 'RSQLite', 'httr', 'xml2', 'rvest'), repos='https://cloud.r-project.org')"
 
 # Install Typst
 RUN curl -L https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz | tar -xJ && \
