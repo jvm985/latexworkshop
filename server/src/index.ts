@@ -360,7 +360,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         var_list <- list()
         all_objs <- ls(all.names=FALSE)
         for (v in all_objs) {
-          if (v == "var_list" || v == "all_objs") next
+          if (v %in% c("var_list", "all_objs", "v", "val")) next
           val <- get(v)
           if (!is.function(val) && !is.environment(val)) {
             var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
