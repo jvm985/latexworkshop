@@ -6,7 +6,7 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   Eye, Folder, FilePlus, FolderPlus, 
-  AlertCircle, X, UserPlus, Shield, User as UserIcon,
+  AlertCircle, X, UserPlus, User as UserIcon,
   ChevronDown, ChevronRight, Trash2, CheckCircle2, Check,
   Download, LogOut, Loader, Upload,
   Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
