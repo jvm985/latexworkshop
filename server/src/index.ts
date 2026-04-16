@@ -45,8 +45,8 @@ const User = mongoose.model('User', userSchema);
 const projectSchema = new mongoose.Schema({
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
-  type: { type: String, enum: ['latex', 'typst', 'markdown'], default: 'latex' },
-  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc'], default: 'pdflatex' },
+  type: { type: String, enum: ['latex', 'typst', 'markdown', 'R'], default: 'latex' },
+  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc', 'R'], default: 'pdflatex' },
   sharedWith: [{
     email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
@@ -66,6 +66,31 @@ const documentSchema = new mongoose.Schema({
   isMain: { type: Boolean, default: false }
 });
 const Document = mongoose.model('Document', documentSchema);
+
+// --- R SESSION MANAGEMENT ---
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, output: string }>();
+
+const getRSession = (userId: string) => {
+  if (userSessions.has(userId)) return userSessions.get(userId)!;
+
+  const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
+  const session = { process: rProcess, output: '' };
+  
+  rProcess.stdout.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
+  rProcess.stderr.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
+  
+  rProcess.stdin.write(`options(device = function(...) { 
+    png(file = "/tmp/lw_plot_${userId}_%03d.png", width = 800, height = 600)
+  })\n`);
+
+  userSessions.set(userId, session);
+  return session;
+};
 
 // --- AUTH MIDDLEWARE ---
 const authenticate = async (req: any, res: any, next: any) => {
@@ -256,10 +281,12 @@ app.post('/api/projects', authenticate, async (req: any, res) => {
   let compiler = 'pdflatex';
   if (type === 'typst') compiler = 'typst';
   if (type === 'markdown') compiler = 'pandoc';
+  if (type === 'R') compiler = 'R';
   const project = await Project.create({ owner: req.user._id, name, type, compiler });
   let mainFile = 'main.tex', content = '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
   if (type === 'typst') { mainFile = 'main.typ'; content = '#set page(paper: "a4")\n= Hello Typst'; }
   else if (type === 'markdown') { mainFile = 'main.md'; content = '# Hello Markdown\n\nThis is a professional document.'; }
+  else if (type === 'R') { mainFile = 'main.R'; content = 'print("Hello R!")\nx <- 10\ny <- 20\nplot(x, y)'; }
   await Document.create({ project: project._id, name: mainFile, content, isMain: true });
   res.json(project);
 });
@@ -335,6 +362,102 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
   const documents = await Document.find({ project: project._id, isFolder: false });
+
+  if (project.type === 'R') {
+      const { currentContent, currentFileId } = req.body;
+      const userId = req.user._id.toString();
+      const session = getRSession(userId);
+      const workDir = `/tmp/lw_r_work_${userId}`;
+
+      if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
+      for (const doc of documents) {
+          const content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+          fs.writeFileSync(path.join(workDir, doc.name), content || '');
+      }
+
+      // Clear previous plots for this user
+      fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).forEach(f => {
+          try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {}
+      });
+
+      session.output = ''; 
+      const sentinel = `SENTINEL_DONE_${Date.now()}`;
+      const scriptPath = `/tmp/lw_script_${userId}.R`;
+      
+      const codeToRun = (currentFileId ? currentContent : documents.find(d => d.isMain)?.content) || '';
+
+      const wrappedCode = `
+        setwd("${workDir}")
+        options(warn=-1)
+        
+        # Run user code
+        tryCatch({
+          ${codeToRun}
+        }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+        
+        # Finalize plots
+        while(dev.cur() > 1) dev.off()
+        cat("${sentinel}\\n")
+        
+        # Silently capture variables
+        var_list <- list()
+        all_objs <- ls(all.names=FALSE)
+        for (v in all_objs) {
+          if (v == "var_list" || v == "all_objs") next
+          val <- get(v)
+          if (!is.function(val) && !is.environment(val)) {
+            var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
+          }
+        }
+        library(jsonlite)
+        write_json(var_list, "/tmp/lw_vars_${userId}.json")
+      `;
+
+      fs.writeFileSync(scriptPath, wrappedCode);
+      session.process.stdin.write(`source("${scriptPath}", echo=FALSE, verbose=FALSE, print.eval=TRUE)\n`);
+
+      let checkCount = 0;
+      const waitForDone = setInterval(() => {
+          checkCount++;
+          if (session.output.includes(sentinel) || checkCount > 250) {
+              clearInterval(waitForDone);
+              
+              let finalOutput = session.output.split(sentinel)[0];
+              
+              // Intensive filtering of wrapper code echoes (similar to R app)
+              const lines = finalOutput.split('\n').filter(l => {
+                  const trimmed = l.trim();
+                  if (trimmed.startsWith('> source(')) return false;
+                  if (trimmed.startsWith('> setwd(')) return false;
+                  if (trimmed.startsWith('> options(')) return false;
+                  if (trimmed.startsWith('> tryCatch({')) return false;
+                  if (trimmed.startsWith('> while(dev.cur()')) return false;
+                  if (trimmed === '+') return false;
+                  return true;
+              });
+              finalOutput = lines.join('\n').replace(/^> /gm, '').trim();
+
+              const varFile = `/tmp/lw_vars_${userId}.json`;
+              let variables = {};
+              
+              setTimeout(() => {
+                  if (fs.existsSync(varFile)) {
+                      try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
+                      fs.unlinkSync(varFile);
+                  }
+
+                  const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).sort();
+                  const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
+                  plotFiles.forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
+
+                  res.json({ stdout: finalOutput, plots, variables });
+                  if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+              }, 500);
+          }
+      }, 100);
+      return;
+  }
+
   try {
       const result: any = await compileProject(project, documents, req.body);
       res.sendFile(result.pdfPath);

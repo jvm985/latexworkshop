@@ -97,6 +97,7 @@ export default function Dashboard() {
               <option value="latex">LaTeX</option>
               <option value="typst">Typst</option>
               <option value="markdown">Markdown</option>
+              <option value="R">R</option>
             </select>
             <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '4px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>Create</button>
           </div>
@@ -124,7 +125,7 @@ export default function Dashboard() {
                 >
                   <td style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <FileText size={18} color={p.type === 'typst' ? '#4ade80' : p.type === 'markdown' ? '#ffc107' : '#0071e3'}/>
+                      <FileText size={18} color={p.type === 'typst' ? '#4ade80' : p.type === 'markdown' ? '#ffc107' : p.type === 'R' ? '#276dc3' : '#0071e3'}/>
                       <span style={{ fontWeight: 500, fontSize: '15px' }}>{p.name}</span>
                     </div>
                   </td>

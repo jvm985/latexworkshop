@@ -74,6 +74,7 @@ export default function EditorView() {
   const [activeDoc, setActiveDoc] = useState<any>(null);
   
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
   
   const [compiling, setCompiling] = useState(false);
   const [autoCompile, setAutoCompile] = useState(true);
@@ -169,6 +170,8 @@ export default function EditorView() {
       // CRITICAL: Get latest content directly from editor to avoid React state lag
       const latestContent = editorRef.current ? editorRef.current.getValue() : currentDoc?.content;
       
+      const isR = pType === 'R';
+
       const res = await axios.post(`${API_URL}/compile/${id}`, {
           preferredMain: currentDoc?.name,
           currentContent: latestContent,
@@ -177,12 +180,19 @@ export default function EditorView() {
           usePreamble: usePreamble
       }, { 
         headers: { Authorization: `Bearer ${token}` }, 
-        responseType: 'blob' 
+        responseType: isR ? 'json' : 'blob' 
       });
       
-      const blob = new Blob([res.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      setPdfUrl(url);
+      if (isR) {
+          setRResult(res.data);
+          setPdfUrl(null);
+      } else {
+          const blob = new Blob([res.data], { type: 'application/pdf' });
+          const url = window.URL.createObjectURL(blob);
+          setPdfUrl(url);
+          setRResult(null);
+      }
+
       setLogs(null);
       setParsedErrors([]);
       setLastStatus('success');
@@ -579,7 +589,7 @@ export default function EditorView() {
                             <span>Auto</span>
                         </div>
                         <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
-                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (compileMode === 'normal' ? 'Compile' : 'Draft')}</button>
+                            <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (project?.type === 'R' ? 'Run' : (compileMode === 'normal' ? 'Compile' : 'Draft'))}</button>
                             {project?.type === 'latex' && (
                                 <button onClick={(e) => { e.stopPropagation(); setShowCompileOptions(!showCompileOptions); }} style={{ background: 'rgba(0,0,0,0.1)', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '4px 6px', cursor: 'pointer' }}><ChevronDown size={12}/></button>
                             )}
@@ -603,7 +613,7 @@ export default function EditorView() {
                 </div>
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (activeDoc.name?.endsWith('.md') ? 'markdown' : (project?.type === 'typst' ? 'typst' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; editor.onMouseDown(syncToPdf); }} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
+                        <Editor height="100%" language={activeDoc.name?.endsWith('.tex') ? 'latex' : (activeDoc.name?.endsWith('.md') ? 'markdown' : (activeDoc.name?.endsWith('.R') || activeDoc.name?.endsWith('.r') ? 'r' : (project?.type === 'typst' ? 'typst' : 'latex')))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; editor.onMouseDown(syncToPdf); }} options={{ fontSize: 16, minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'on', padding: { top: 16 }, renderWhitespace: 'none', cursorBlinking: 'smooth', smoothScrolling: true }} />
                     ) : activeDoc?.isBinary ? (
                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', padding: '40px' }}>
                             {activeDoc.name.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? <img src={`${API_URL}/projects/${id}/files/${activeDoc._id}/raw?t=${Date.now()}`} style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: '8px' }} alt={activeDoc.name}/> : <div style={{ textAlign: 'center', color: '#444' }}><FileCode size={64} style={{ opacity: 0.1, marginBottom: '20px' }}/><div>Binary file: {activeDoc.name}</div></div>}
@@ -638,7 +648,48 @@ export default function EditorView() {
                     </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {showErrorView && logs ? (
+                {project?.type === 'R' ? (
+                    <div style={{ height: '100%', overflowY: 'auto', background: '#1e1e1e', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
+                        
+                        {rResult?.stdout && (
+                            <div style={{ background: '#000', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
+                                <div style={{ fontSize: '10px', color: '#555', marginBottom: '8px', fontWeight: 800 }}>OUTPUT</div>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout}</pre>
+                            </div>
+                        )}
+
+                        {rResult?.plots && rResult.plots.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                <div style={{ fontSize: '10px', color: '#555', fontWeight: 800 }}>PLOTS</div>
+                                {rResult.plots.map((plot, i) => (
+                                    <img key={i} src={`data:image/png;base64,${plot}`} style={{ width: '100%', borderRadius: '8px', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} alt={`Plot ${i+1}`} />
+                                ))}
+                            </div>
+                        )}
+
+                        {rResult?.variables && Object.keys(rResult.variables).length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ fontSize: '10px', color: '#555', fontWeight: 800 }}>VARIABLES</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+                                    {Object.entries(rResult.variables).map(([name, info]: [string, any]) => (
+                                        <div key={name} style={{ background: '#252526', padding: '10px', borderRadius: '6px', border: '1px solid #333' }}>
+                                            <div style={{ fontWeight: 700, fontSize: '12px', color: '#0071e3', marginBottom: '4px' }}>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span></div>
+                                            <pre style={{ margin: 0, fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap' }}>{info.summary}</pre>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {!compiling && !rResult && (
+                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                                <Play size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                                <span>Click Run to execute code</span>
+                            </div>
+                        )}
+                    </div>
+                ) : showErrorView && logs ? (
                     <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', margin: 0 }}><AlertCircle /> Compilation Output</h2>
