@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   FileText, LogOut, Search, Clock, 
-  Trash2, ExternalLink, Layout, RefreshCw
+  Trash2, ExternalLink, Layout, RefreshCw,
+  Plus, Users
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -12,6 +13,7 @@ export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState('');
   const [name, setName] = useState('');
+  const [tab, setTab] = useState<'my' | 'shared'>('my');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const token = localStorage.getItem('latex_token');
@@ -54,7 +56,12 @@ export default function Dashboard() {
     }
   };
 
-  const filteredProjects = projects.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredProjects = projects.filter((p: any) => {
+      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+      const isMine = p.owner.email === user.email;
+      if (tab === 'my') return matchesSearch && isMine;
+      return matchesSearch && !isMine;
+  });
 
   if (loading) return (
     <div style={{ background: '#1e1e1e', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
@@ -64,19 +71,58 @@ export default function Dashboard() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', background: '#121212', color: 'white', fontFamily: '"Inter", sans-serif' }}>
-      <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
+      <aside style={{ width: '260px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
           <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={18}/></div>
           <span style={{ fontWeight: 800, fontSize: '16px' }}>Docs</span>
         </div>
         <nav style={{ flex: 1, padding: '20px 12px' }}>
-          <div style={{ background: '#282828', padding: '8px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', cursor: 'pointer' }}>
-            <FileText size={16} color="#0071e3"/> Projects
+          <div 
+            onClick={() => setTab('my')}
+            style={{ 
+                background: tab === 'my' ? '#282828' : 'transparent', 
+                padding: '8px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', cursor: 'pointer', marginBottom: '4px',
+                color: tab === 'my' ? 'white' : '#888'
+            }}
+          >
+            <FileText size={16} color={tab === 'my' ? "#0071e3" : "#666"}/> My Projects
+          </div>
+          <div 
+            onClick={() => setTab('shared')}
+            style={{ 
+                background: tab === 'shared' ? '#282828' : 'transparent', 
+                padding: '8px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', cursor: 'pointer',
+                color: tab === 'shared' ? 'white' : '#888'
+            }}
+          >
+            <Users size={16} color={tab === 'shared' ? "#0071e3" : "#666"}/> Shared with me
+          </div>
+
+          <div style={{ marginTop: '32px', padding: '0 12px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 800, color: '#444', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>New Project</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <input 
+                    value={name} 
+                    onChange={e => setName(e.target.value)} 
+                    placeholder="Project name..." 
+                    style={{ background: '#222', border: '1px solid #333', color: 'white', padding: '8px 12px', borderRadius: '6px', outline: 'none', fontSize: '13px' }}
+                  />
+                  <button 
+                    onClick={create} 
+                    style={{ background: '#0071e3', border: 'none', color: 'white', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <Plus size={14}/> Create
+                  </button>
+              </div>
           </div>
         </nav>
         <div style={{ padding: '20px', borderTop: '1px solid #282828', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: '#333', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user.name?.[0]}</div>
-          <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Logout"><LogOut size={16}/></button>
+          <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: '#333', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{user.name?.[0]}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</div>
+              <div style={{ fontSize: '10px', color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
+          </div>
+          <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }} title="Logout"><LogOut size={16}/></button>
         </div>
       </aside>
 
@@ -90,9 +136,11 @@ export default function Dashboard() {
               style={{ background: '#181818', border: '1px solid #282828', color: 'white', padding: '8px 12px 8px 36px', borderRadius: '8px', width: '300px', outline: 'none', fontSize: '14px' }}
             />
           </div>
-          <div style={{ display: 'flex', gap: '8px', background: '#181818', borderRadius: '8px', border: '1px solid #282828', padding: '4px' }}>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 12px', width: '180px', outline: 'none', fontSize: '14px' }}/>
-            <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '4px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>Create Project</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ fontSize: '13px', color: '#666' }}>{user.name}</div>
+              <button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: '#222', border: '1px solid #333', color: '#aaa', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <LogOut size={14}/> Logout
+              </button>
           </div>
         </header>
 
