@@ -77,7 +77,6 @@ export default function EditorView() {
   const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
   
   const [compiling, setCompiling] = useState(false);
-  const [autoCompile, setAutoCompile] = useState(true);
   const [compileMode, setCompileMode] = useState<'normal' | 'draft'>('normal');
   const [usePreamble, setUsePreamble] = useState(false);
   const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
@@ -237,7 +236,7 @@ export default function EditorView() {
     } finally { setCompiling(false); }
   };
 
-  const fetchAll = async (doAutoCompile = false) => {
+  const fetchAll = async () => {
     try {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(res.data.project);
@@ -246,7 +245,6 @@ export default function EditorView() {
         const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ' || d.name === 'main.md') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         switchDoc(main);
       }
-      if (doAutoCompile) compile(true, res.data.project.type);
     } catch (e) { navigate('/'); }
   };
 
@@ -257,14 +255,14 @@ export default function EditorView() {
       try {
           const res = await axios.post(`${API_URL}/convert/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
           setProject(res.data);
-          fetchAll(true);
+          fetchAll();
       } catch(e) { alert('Conversion failed.'); }
       finally { setCompiling(false); }
   };
 
   useEffect(() => {
     if (!token) { navigate('/login'); return; }
-    fetchAll(true);
+    fetchAll();
     socketRef.current = io({ path: '/socket.io', transports: ['websocket'] });
     return () => { socketRef.current?.disconnect(); };
   }, [id, token]);
@@ -319,10 +317,6 @@ export default function EditorView() {
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
     syncToPdf();
-    if (autoCompile) {
-      if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
-      compileTimeoutRef.current = setTimeout(() => compile(true), 2000); 
-    }
   };
 
   const jumpToError = (error: any) => {
@@ -610,10 +604,6 @@ export default function EditorView() {
                         <div style={{ width: '10px', height: '10px', borderRadius: '5px', background: lastStatus === 'success' ? '#4ade80' : lastStatus === 'error' ? '#ff5f56' : '#666', cursor: 'pointer', boxShadow: lastStatus === 'error' ? '0 0 8px #ff5f56' : 'none' }} onClick={() => { if (lastStatus === 'error') setShowErrorView(true); }} title={lastStatus === 'error' ? 'Click to show errors' : 'Status OK'}/>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#888' }}>
-                            <input type="checkbox" checked={autoCompile} onChange={(e) => setAutoCompile(e.target.checked)} style={{ cursor: 'pointer' }}/>
-                            <span>Auto</span>
-                        </div>
                         <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
                             <button onClick={() => compile()} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12} fill="white"/> {compiling ? '...' : (project?.type === 'R' ? 'Run' : (compileMode === 'normal' ? 'Compile' : 'Draft'))}</button>
                             {project?.type === 'latex' && (
