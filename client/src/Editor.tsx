@@ -102,7 +102,10 @@ export default function EditorView() {
   const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
   const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'output' | 'plots' | 'variables'>('output');
+  const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
+  const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
+  
+  const [activeTab, setActiveTab] = useState<'plots' | 'variables'>('plots');
   const [currentPlotIndex, setCurrentPlotPlotIndex] = useState(0);
   const [resultsHeight, setResultsHeight] = useState(300);
   const [outputHeight, setOutputHeight] = useState(150);
@@ -351,6 +354,12 @@ export default function EditorView() {
       fetchAll();
   };
 
+  const toggleVar = (name: string) => {
+    const next = new Set(expandedVars);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    setExpandedVars(next);
+  };
+
   const renameFile = async (doc: any) => {
       const newName = prompt('Enter new name:', doc.name);
       if (!newName || newName === doc.name) return;
@@ -565,17 +574,11 @@ export default function EditorView() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ position: 'relative' }}>
-              <button onClick={(e) => { e.stopPropagation(); setShowProjectMenu(!showProjectMenu); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>Project <ChevronDown size={14}/></button>
-              {showProjectMenu && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '180px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-                      <button onClick={() => setShowShare(true)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Share2 size={14}/> Share</button>
-                      <button onClick={() => setShowSettings(true)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Settings size={14}/> Settings</button>
-                      <button onClick={convertProject} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><RefreshCw size={14}/> Convert</button>
-                  </div>
-              )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '24px', height: '24px', borderRadius: '12px', background: '#333', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{user?.name?.[0]}</div>
+              <span style={{ fontSize: '13px', color: '#ccc' }}>{user?.name}</span>
           </div>
-          <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Logout"><LogOut size={18}/></button>
+          <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4 }} title="Logout"><LogOut size={18}/></button>
         </div>
       </nav>
 
@@ -610,12 +613,22 @@ export default function EditorView() {
                             )}
                             {showCompileOptions && (
                                 <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '200px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, padding: '4px 8px', textTransform: 'uppercase' }}>Mode</div>
                                     <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
                                         {compileMode === 'normal' ? <CheckCircle2 size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode
                                     </button>
                                     <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
                                         {compileMode === 'draft' ? <CheckCircle2 size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode
                                     </button>
+                                    
+                                    <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
+                                    <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, padding: '4px 8px', textTransform: 'uppercase' }}>Compiler</div>
+                                    {['pdflatex', 'xelatex', 'lualatex'].map(c => (
+                                        <button key={c} onClick={() => { updateProject({ compiler: c }); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: project?.compiler === c ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
+                                            {project?.compiler === c ? <CheckCircle2 size={14} color="#0071e3"/> : <div style={{ width: 14 }}/>} {c}
+                                        </button>
+                                    ))}
+
                                     <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }}>
                                         <input type="checkbox" checked={usePreamble} onChange={(e) => setUsePreamble(e.target.checked)} />
@@ -669,6 +682,7 @@ export default function EditorView() {
                             <div style={{ height: `${outputHeight}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                 <div style={{ background: '#252526', padding: '4px 12px', fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #333' }}>
                                     <span>Console Output</span>
+                                    <button onClick={() => setRResult((prev: any) => prev ? ({ ...prev, stdout: '' }) : null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}><Eraser size={10}/> Clear</button>
                                 </div>
                                 <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#000' }}>
                                     <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout || 'No output.'}</pre>
@@ -701,14 +715,21 @@ export default function EditorView() {
                                         </div>
                                     )}
                                     {activeTab === 'variables' && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px' }}>
+                                        <div style={{ textAlign: 'left' }}>
                                             {Object.entries(rResult.variables || {}).map(([name, info]: [string, any]) => (
-                                                <div key={name} style={{ background: '#252526', padding: '10px', borderRadius: '6px', border: '1px solid #333' }}>
-                                                    <div style={{ fontWeight: 700, fontSize: '12px', color: '#0071e3', marginBottom: '4px' }}>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span></div>
-                                                    <pre style={{ margin: 0, fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{info.summary}</pre>
+                                                <div key={name} style={{ marginBottom: '8px', borderBottom: '1px solid #222', paddingBottom: '8px' }}>
+                                                    <div onClick={() => toggleVar(name)} style={{ fontWeight: 700, color: '#0071e3', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                        {expandedVars.has(name) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                                                        <Database size={12}/>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span>
+                                                    </div>
+                                                    {expandedVars.has(name) && info.summary && (
+                                                        <pre style={{ margin: '4px 0 0 18px', fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap', fontFamily: 'monospace', background: '#111', padding: '6px', borderRadius: '4px', borderLeft: '2px solid #0071e3' }}>
+                                                            {info.summary}
+                                                        </pre>
+                                                    )}
                                                 </div>
                                             ))}
-                                            {Object.keys(rResult.variables || {}).length === 0 && <div style={{ color: '#444' }}>No variables.</div>}
+                                            {Object.keys(rResult.variables || {}).length === 0 && <div style={{ color: '#444', fontSize: '12px' }}>No variables in environment.</div>}
                                         </div>
                                     )}
                                 </div>
