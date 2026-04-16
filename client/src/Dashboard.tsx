@@ -12,7 +12,6 @@ export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [search, setSearch] = useState('');
   const [name, setName] = useState('');
-  const [type, setType] = useState('latex');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const token = localStorage.getItem('latex_token');
@@ -39,7 +38,7 @@ export default function Dashboard() {
 
   const create = async () => {
     if (!name) return;
-    const res = await axios.post(`${API_URL}/projects`, { name, type }, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await axios.post(`${API_URL}/projects`, { name }, { headers: { Authorization: `Bearer ${token}` } });
     navigate(`/project/${res.data._id}`);
   };
 
@@ -68,7 +67,7 @@ export default function Dashboard() {
       <aside style={{ width: '220px', background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #282828' }}>
           <div style={{ background: '#0071e3', padding: '6px', borderRadius: '8px' }}><Layout size={18}/></div>
-          <span style={{ fontWeight: 800, fontSize: '16px' }}>Workshop</span>
+          <span style={{ fontWeight: 800, fontSize: '16px' }}>Docs</span>
         </div>
         <nav style={{ flex: 1, padding: '20px 12px' }}>
           <div style={{ background: '#282828', padding: '8px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', cursor: 'pointer' }}>
@@ -93,13 +92,7 @@ export default function Dashboard() {
           </div>
           <div style={{ display: 'flex', gap: '8px', background: '#181818', borderRadius: '8px', border: '1px solid #282828', padding: '4px' }}>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Project name..." style={{ background: 'none', border: 'none', color: 'white', padding: '0 12px', width: '180px', outline: 'none', fontSize: '14px' }}/>
-            <select value={type} onChange={e => setType(e.target.value)} style={{ background: '#282828', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
-              <option value="latex">LaTeX</option>
-              <option value="typst">Typst</option>
-              <option value="markdown">Markdown</option>
-              <option value="R">R</option>
-            </select>
-            <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '4px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>Create</button>
+            <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '4px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}>Create Project</button>
           </div>
         </header>
 
@@ -108,7 +101,6 @@ export default function Dashboard() {
             <thead>
               <tr style={{ color: '#666', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid #282828' }}>
                 <th style={{ padding: '12px 20px', fontWeight: 600 }}>Project Name</th>
-                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Type</th>
                 <th style={{ padding: '12px 20px', fontWeight: 600 }}>Owner</th>
                 <th style={{ padding: '12px 20px', fontWeight: 600 }}>Last Modified</th>
                 <th style={{ padding: '12px 20px', width: '80px' }}></th>
@@ -125,12 +117,9 @@ export default function Dashboard() {
                 >
                   <td style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <FileText size={18} color={p.type === 'typst' ? '#4ade80' : p.type === 'markdown' ? '#ffc107' : p.type === 'R' ? '#276dc3' : '#0071e3'}/>
+                      <FileText size={18} color="#0071e3"/>
                       <span style={{ fontWeight: 500, fontSize: '15px' }}>{p.name}</span>
                     </div>
-                  </td>
-                  <td style={{ padding: '16px 20px' }}>
-                    <span style={{ fontSize: '11px', background: '#222', color: '#888', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>{p.type.toUpperCase()}</span>
                   </td>
                   <td style={{ padding: '16px 20px', fontSize: '14px', color: '#aaa' }}>
                     {p.owner.email === user.email ? 'You' : p.owner.name || p.owner.email}

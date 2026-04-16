@@ -27,7 +27,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/docs';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
 
 mongoose.connect(MONGO_URI).then(() => console.log('✅ Connected to MongoDB'));
@@ -45,8 +45,8 @@ const User = mongoose.model('User', userSchema);
 const projectSchema = new mongoose.Schema({
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
-  type: { type: String, enum: ['latex', 'typst', 'markdown', 'R'], default: 'latex' },
-  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc', 'R'], default: 'pdflatex' },
+  type: { type: String, default: 'project' },
+  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc'], default: 'pdflatex' },
   sharedWith: [{
     email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
@@ -154,7 +154,20 @@ export const compileProject = async (project: any, documents: any[], options: an
     }
 
     if (!mainFile) {
-        const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md'));
+        // Look for LaTeX root comment % !TEX root = ...
+        for (const doc of documents) {
+            if (doc.content?.includes('!TEX root')) {
+                const match = doc.content.match(/%\s*!TEX\s+root\s*=\s*([^\s]+)/);
+                if (match) {
+                    mainFile = path.join(doc.path, match[1]);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!mainFile) {
+        const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md') || d.name.endsWith('.Rmd'));
         if (fallback) mainFile = path.join(fallback.path, fallback.name);
     }
 
@@ -166,90 +179,39 @@ export const compileProject = async (project: any, documents: any[], options: an
     const absActualPdfPath = path.join(workDir, path.dirname(mainFile), `${jobName}.pdf`);
     const finalPdf = path.join(workDir, 'output.pdf');
 
-    // 2. Clear old artifacts so we never serve a previous version
-    [finalPdf, absActualPdfPath, absLogPath, 
-     path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`),
-     path.join(workDir, path.dirname(mainFile), `${jobName}.fdb_latexmk`),
-     path.join(workDir, path.dirname(mainFile), `${jobName}.fls`)
-    ].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
-
-    // 3. LaTeX Preamble Injection
-    if (project.type === 'latex' && usePreamble) {
-        let content = fs.readFileSync(targetPath, 'utf8');
-        if (!content.includes('endpreamble')) {
-            const marker = '\n\\ifdefined\\endpreamble\\else\\let\\endpreamble\\relax\\fi\\endpreamble\n';
-            content = content.replace(/(\\documentclass(?:\[.*?\])?\{.*?\})/i, `$1${marker}`);
-            fs.writeFileSync(targetPath, content);
-        }
-    }
+    // 2. Clear old artifacts
+    [finalPdf, absActualPdfPath, absLogPath].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
 
     let command = '';
     const runId = Math.random().toString(36).substring(7);
     const runCacheDir = path.join(workDir, `rc_${runId}`);
     fs.mkdirSync(runCacheDir, { recursive: true });
     
-    // Symlink persistent assets to force fresh document evaluation without re-downloading packages
-    ['packages', 'fonts'].forEach(sub => {
-        const src = path.join(cacheDir, sub);
-        if (!fs.existsSync(src)) fs.mkdirSync(src, { recursive: true });
-        try { fs.symlinkSync(src, path.join(runCacheDir, sub)); } catch(e) {}
-    });
-
     const env = { ...process.env, TYPST_CACHE_DIR: runCacheDir };
 
-    if (project.type === 'typst') {
+    if (mainFile.endsWith('.typ')) {
         command = `typst compile --font-path /usr/share/fonts/dm-sans/ "${mainFile}" "output.pdf"`;
-    } else if (project.type === 'markdown') {
+    } else if (mainFile.endsWith('.Rmd')) {
+        command = `Rscript -e "rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
+    } else if (mainFile.endsWith('.md')) {
         command = `pandoc "${mainFile}" -o "output.pdf"`;
     } else {
-        const compiler = project.compiler === 'pdflatex' ? 'pdflatex' : project.compiler;
-        const fmtName = `${jobName}_${compiler}`;
-        const fmtPath = path.join(workDir, path.dirname(mainFile), `${fmtName}.fmt`);
-        let dumpSuccess = false;
-
-        if (usePreamble) {
-            let shouldRegenerate = !fs.existsSync(fmtPath);
-            if (!shouldRegenerate && latestModTime > fs.statSync(fmtPath).mtimeMs) shouldRegenerate = true;
-
-            if (shouldRegenerate) {
-                const dumpCmd = `${compiler} -ini -interaction=nonstopmode -jobname="${fmtName}" "&${compiler}" mylatexformat.ltx "${mainFile}"`;
-                dumpSuccess = await new Promise((resolve) => {
-                    exec(dumpCmd, { cwd: workDir, env }, (err) => resolve(!err));
-                });
-            } else {
-                dumpSuccess = true;
-            }
-        }
-
-        const fmtFlag = (usePreamble && dumpSuccess && fs.existsSync(fmtPath)) ? `-fmt="${fmtName}"` : '';
-        if (mode === 'draft') {
-            command = `${compiler} -interaction=nonstopmode -synctex=1 ${fmtFlag} "${mainFile}"`;
-        } else {
-            const engine = project.compiler === 'xelatex' ? '-pdfxe' : (project.compiler === 'lualatex' ? '-pdflua' : '-pdf');
-            const latexmkFmt = fmtFlag ? `-latexoption='${fmtFlag}'` : '';
-            command = `latexmk ${engine} -interaction=nonstopmode -f -synctex=1 ${latexmkFmt} "${mainFile}"`;
-        }
+        const compiler = project.compiler || 'pdflatex';
+        const engine = compiler === 'xelatex' ? '-pdfxe' : (compiler === 'lualatex' ? '-pdflua' : '-pdf');
+        command = `latexmk ${engine} -interaction=nonstopmode -f -synctex=1 "${mainFile}"`;
     }
 
     // 4. Execute
     return new Promise((resolve, reject) => {
-        exec(command, { cwd: workDir, timeout: 60000, env }, (error, stdout, stderr) => {
+        exec(command, { cwd: workDir, timeout: 120000, env }, (error, stdout, stderr) => {
             let logs = `--- COMMAND ---\n${command}\n\n--- STDOUT ---\n${stdout}\n\n--- STDERR ---\n${stderr}`;
             if (fs.existsSync(absLogPath)) logs += `\n\n--- LATEX LOG ---\n${fs.readFileSync(absLogPath, 'utf8')}`;
 
-            // Cleanup run-specific cache
-            try { fs.rmSync(runCacheDir, { recursive: true, force: true }); } catch (e) {}
-
             // Success detection
-            const producedPdf = (project.type === 'latex') ? absActualPdfPath : finalPdf;
+            const producedPdf = (mainFile.endsWith('.tex')) ? absActualPdfPath : finalPdf;
 
             if (fs.existsSync(producedPdf)) {
                 if (producedPdf !== finalPdf) fs.renameSync(producedPdf, finalPdf);
-                
-                // SyncTeX support
-                const synctex = path.join(workDir, path.dirname(mainFile), `${jobName}.synctex.gz`);
-                if (fs.existsSync(synctex)) fs.copyFileSync(synctex, path.join('/tmp', `synctex_${project._id}.gz`));
-                
                 resolve({ pdfPath: finalPdf, logs });
             } else {
                 reject({ error: 'Compilatie mislukt', logs });
@@ -277,17 +239,9 @@ app.get('/api/projects', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/projects', authenticate, async (req: any, res) => {
-  const { name, type } = req.body;
-  let compiler = 'pdflatex';
-  if (type === 'typst') compiler = 'typst';
-  if (type === 'markdown') compiler = 'pandoc';
-  if (type === 'R') compiler = 'R';
-  const project = await Project.create({ owner: req.user._id, name, type, compiler });
-  let mainFile = 'main.tex', content = '\\documentclass{article}\n\\begin{document}\nHello LaTeX!\n\\end{document}';
-  if (type === 'typst') { mainFile = 'main.typ'; content = '#set page(paper: "a4")\n= Hello Typst'; }
-  else if (type === 'markdown') { mainFile = 'main.md'; content = '# Hello Markdown\n\nThis is a professional document.'; }
-  else if (type === 'R') { mainFile = 'main.R'; content = 'print("Hello R!")\nx <- 10\ny <- 20\nplot(x, y)'; }
-  await Document.create({ project: project._id, name: mainFile, content, isMain: true });
+  const { name } = req.body;
+  const project = await Project.create({ owner: req.user._id, name, type: 'project', compiler: 'pdflatex' });
+  await Document.create({ project: project._id, name: 'main.tex', content: '\\documentclass{article}\n\\begin{document}\nHello Docs!\n\\end{document}', isMain: true });
   res.json(project);
 });
 
@@ -363,8 +317,11 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   if (!project) return res.status(404).send('Not found');
   const documents = await Document.find({ project: project._id, isFolder: false });
 
-  if (project.type === 'R') {
-      const { currentContent, currentFileId } = req.body;
+  const { currentContent, currentFileId } = req.body;
+  const activeDoc = documents.find(d => d._id.toString() === currentFileId);
+  const isR = activeDoc?.name.endsWith('.R') || activeDoc?.name.endsWith('.r');
+
+  if (isR) {
       const userId = req.user._id.toString();
       const session = getRSession(userId);
       const workDir = `/tmp/lw_r_work_${userId}`;
@@ -424,7 +381,6 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
               
               let finalOutput = session.output.split(sentinel)[0];
               
-              // Intensive filtering of wrapper code echoes (similar to R app)
               const lines = finalOutput.split('\n').filter(l => {
                   const trimmed = l.trim();
                   if (trimmed.startsWith('> source(')) return false;

@@ -103,8 +103,15 @@ export default function EditorView() {
   const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
   const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
+  const [activeTab, setActiveTab] = useState<'output' | 'plots' | 'variables'>('output');
+  const [currentPlotIndex, setCurrentPlotPlotIndex] = useState(0);
+  const [resultsHeight, setResultsHeight] = useState(300);
+  const [outputHeight, setOutputHeight] = useState(150);
+  
   const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
+  const isResizingResultsRef = useRef(false);
+  const isResizingOutputRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
   const compileTimeoutRef = useRef<any>(null);
@@ -186,6 +193,12 @@ export default function EditorView() {
       if (isR) {
           setRResult(res.data);
           setPdfUrl(null);
+          if (res.data.plots && res.data.plots.length > 0) {
+              setActiveTab('plots');
+              setCurrentPlotPlotIndex(res.data.plots.length - 1);
+          } else {
+              setActiveTab('output');
+          }
       } else {
           const blob = new Blob([res.data], { type: 'application/pdf' });
           const url = window.URL.createObjectURL(blob);
@@ -429,10 +442,23 @@ export default function EditorView() {
         setEditorWidth(Math.max(10, Math.min(90, percentage)));
       }
       if (isResizingSidebarRef.current) setLeftWidth(Math.max(150, Math.min(500, e.clientX)));
+      if (isResizingResultsRef.current) {
+          const newHeight = window.innerHeight - e.clientY;
+          setResultsHeight(Math.max(100, Math.min(window.innerHeight - 100, newHeight)));
+      }
+      if (isResizingOutputRef.current) {
+          const rect = document.getElementById('results-container')?.getBoundingClientRect();
+          if (rect) {
+              const newOutputHeight = e.clientY - rect.top;
+              setOutputHeight(Math.max(50, Math.min(resultsHeight - 50, newOutputHeight)));
+          }
+      }
     };
     const handleMouseUp = () => {
       isResizingRef.current = false;
       isResizingSidebarRef.current = false;
+      isResizingResultsRef.current = false;
+      isResizingOutputRef.current = false;
       setContextMenu(null);
     };
     window.addEventListener('mousemove', handleMouseMove);
@@ -542,7 +568,7 @@ export default function EditorView() {
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '14px', fontWeight: 700 }}>{project?.name || 'Loading...'}</span>
-            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888', fontWeight: 700 }}>{project?.type?.toUpperCase()}</span>
+            <span style={{ fontSize: '10px', background: '#333', padding: '2px 6px', borderRadius: '4px', color: '#888', fontWeight: 700 }}>DOCS</span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -647,97 +673,114 @@ export default function EditorView() {
                         {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
                     </div>
                 </div>
-                <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {project?.type === 'R' ? (
-                    <div style={{ height: '100%', overflowY: 'auto', background: '#1e1e1e', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
-                        
-                        {rResult?.stdout && (
-                            <div style={{ background: '#000', padding: '15px', borderRadius: '8px', border: '1px solid #333' }}>
-                                <div style={{ fontSize: '10px', color: '#555', marginBottom: '8px', fontWeight: 800 }}>OUTPUT</div>
-                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout}</pre>
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                        {showErrorView && logs ? (
+                            <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                    <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', margin: 0 }}><AlertCircle /> Compilation Output</h2>
+                                    <button onClick={() => setShowErrorView(false)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Back to PDF</button>
+                                </div>
+                                {logView === 'ordered' && parsedErrors.length > 0 ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {parsedErrors.map((err, i) => (
+                                            <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span><span style={{ color: '#888', fontSize: '11px' }}>Line {err.line}</span></div>
+                                                <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : <pre style={{ padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>}
+                                {logView === 'ordered' && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
+                                {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
+                            </div>
+                        ) : (
+                            <div style={{ height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
+                                {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
+                                {pdfUrl ? (
+                                    <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
+                                        <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
+                                            <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+                                                <Viewer 
+                                                    fileUrl={pdfUrl} 
+                                                    plugins={[zoomPluginInstance]}
+                                                    onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
+                                                    defaultScale={SpecialZoomLevel.PageWidth}
+                                                />
+                                            </div>
+                                        </Worker>
+                                    </div>
+                                ) : !compiling && !logs && !rResult && (
+                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
+                                        <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
+                                        <span>PDF Loading...</span>
+                                    </div>
+                                )}
                             </div>
                         )}
+                    </div>
 
-                        {rResult?.plots && rResult.plots.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                <div style={{ fontSize: '10px', color: '#555', fontWeight: 800 }}>PLOTS</div>
-                                {rResult.plots.map((plot, i) => (
-                                    <img key={i} src={`data:image/png;base64,${plot}`} style={{ width: '100%', borderRadius: '8px', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} alt={`Plot ${i+1}`} />
-                                ))}
-                            </div>
-                        )}
-
-                        {rResult?.variables && Object.keys(rResult.variables).length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ fontSize: '10px', color: '#555', fontWeight: 800 }}>VARIABLES</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
-                                    {Object.entries(rResult.variables).map(([name, info]: [string, any]) => (
-                                        <div key={name} style={{ background: '#252526', padding: '10px', borderRadius: '6px', border: '1px solid #333' }}>
-                                            <div style={{ fontWeight: 700, fontSize: '12px', color: '#0071e3', marginBottom: '4px' }}>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span></div>
-                                            <pre style={{ margin: 0, fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap' }}>{info.summary}</pre>
-                                        </div>
-                                    ))}
+                    {rResult && (
+                        <>
+                        <div onMouseDown={() => isResizingResultsRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111', zIndex: 50 }}></div>
+                        <div id="results-container" style={{ height: `${resultsHeight}px`, background: '#1e1e1e', borderTop: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
+                            {/* TOP: Output / Console */}
+                            <div style={{ height: `${outputHeight}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                <div style={{ background: '#252526', padding: '4px 12px', fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #333' }}>
+                                    <span>Console Output</span>
+                                </div>
+                                <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#000' }}>
+                                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout || 'No output.'}</pre>
                                 </div>
                             </div>
-                        )}
 
-                        {!compiling && !rResult && (
-                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                                <Play size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                                <span>Click Run to execute code</span>
+                            {/* MIDDLE: Sub-resizer */}
+                            <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '4px', cursor: 'ns-resize', background: '#333', zIndex: 50 }}></div>
+
+                            {/* BOTTOM: Tabs (Plots / Variables) */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                <div style={{ background: '#252526', display: 'flex', borderBottom: '1px solid #333' }}>
+                                    {['plots', 'variables'].map(tab => (
+                                        <button key={tab} onClick={() => setActiveTab(tab as any)} style={{ padding: '8px 16px', background: activeTab === tab ? '#1e1e1e' : 'transparent', color: activeTab === tab ? '#0071e3' : '#666', border: 'none', borderBottom: activeTab === tab ? '2px solid #0071e3' : 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>{tab}</button>
+                                    ))}
+                                </div>
+                                <div style={{ flex: 1, overflow: 'auto', padding: '15px' }}>
+                                    {activeTab === 'plots' && (
+                                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            {rResult.plots && rResult.plots.length > 0 ? (
+                                                <>
+                                                <div style={{ marginBottom: '10px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                    <button onClick={() => setCurrentPlotPlotIndex(Math.max(0, currentPlotIndex - 1))} disabled={currentPlotIndex === 0} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', opacity: currentPlotIndex === 0 ? 0.3 : 1 }}><ChevronLeft size={14}/></button>
+                                                    <span style={{ fontSize: '12px', color: '#888' }}>{currentPlotIndex + 1} / {rResult.plots.length}</span>
+                                                    <button onClick={() => setCurrentPlotPlotIndex(Math.min(rResult.plots.length - 1, currentPlotIndex + 1))} disabled={currentPlotIndex === rResult.plots.length - 1} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', opacity: currentPlotIndex === rResult.plots.length - 1 ? 0.3 : 1 }}><ChevronRight size={14}/></button>
+                                                </div>
+                                                <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} alt="Plot" />
+                                                </>
+                                            ) : <div style={{ color: '#444', height: '100%', display: 'flex', alignItems: 'center' }}>No plots.</div>}
+                                        </div>
+                                    )}
+                                    {activeTab === 'variables' && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px' }}>
+                                            {Object.entries(rResult.variables || {}).map(([name, info]: [string, any]) => (
+                                                <div key={name} style={{ background: '#252526', padding: '10px', borderRadius: '6px', border: '1px solid #333' }}>
+                                                    <div style={{ fontWeight: 700, fontSize: '12px', color: '#0071e3', marginBottom: '4px' }}>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span></div>
+                                                    <pre style={{ margin: 0, fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{info.summary}</pre>
+                                                </div>
+                                            ))}
+                                            {Object.keys(rResult.variables || {}).length === 0 && <div style={{ color: '#444' }}>No variables.</div>}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        )}
-                    </div>
-                ) : showErrorView && logs ? (
-                    <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: '#1e1e1e' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '18px', margin: 0 }}><AlertCircle /> Compilation Output</h2>
-                            <button onClick={() => setShowErrorView(false)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Back to PDF</button>
                         </div>
-                        {logView === 'ordered' && parsedErrors.length > 0 ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {parsedErrors.map((err, i) => (
-                                    <div key={i} onClick={() => jumpToError(err)} style={{ background: '#2d2d2d', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', borderLeft: '4px solid #ff5f56' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#ff5f56', fontWeight: 700, fontSize: '12px' }}>{err.file}</span><span style={{ color: '#888', fontSize: '11px' }}>Line {err.line}</span></div>
-                                        <div style={{ color: '#ddd', fontSize: '13px', fontFamily: 'monospace' }}>{err.message}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : <pre style={{ padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{logs}</pre>}
-                        {logView === 'ordered' && <button onClick={() => setShowFullLogs(!showFullLogs)} style={{ marginTop: '20px', background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>Toon volledige logs</button>}
-                        {showFullLogs && logView === 'ordered' && <pre style={{ marginTop: '12px', padding: '12px', background: '#000', color: '#aaa', fontSize: '11px', whiteSpace: 'pre-wrap' }}>{logs}</pre>}
-                    </div>
-                ) : (
-                    <div style={{ height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
-                        {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={32} className="animate-spin" color="#0071e3"/></div>}
-                        {pdfUrl ? (
-                            <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
-                                <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
-                                    <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
-                                        <Viewer 
-                                            fileUrl={pdfUrl} 
-                                            plugins={[zoomPluginInstance]}
-                                            onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
-                                            defaultScale={SpecialZoomLevel.PageWidth}
-                                        />
-                                    </div>
-                                </Worker>
-                            </div>
-                        ) : !compiling && !logs && (
-                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                                <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                                <span>PDF Loading...</span>
-                            </div>
-                        )}
-                    </div>
-                )}
+                        </>
+                    )}
                 </div>
             </div>
         </div>
       </main>
       {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}<button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></div>}
-      {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Compiler</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
+      {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Default Compiler (for LaTeX)</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select><div style={{ marginTop: '12px', fontSize: '11px', color: '#666', lineHeight: '1.5' }}>Tip: specify main LaTeX file with:<br/><code>% !TEX root = main.tex</code></div></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
       {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'center', alignItems: 'center', justifyContent: 'center' }}><Shield size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
     </div>
   );
