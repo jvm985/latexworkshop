@@ -113,7 +113,6 @@ export default function EditorView() {
   const isResizingOutputRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
-  const compileTimeoutRef = useRef<any>(null);
   const activeDocIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
