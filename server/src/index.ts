@@ -476,14 +476,23 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
               
               let finalOutput = session.output.split(sentinel)[0];
               
+              const scriptFileName = path.basename(scriptPath);
               const lines = finalOutput.split('\n').filter(l => {
                   const trimmed = l.trim();
+                  if (trimmed.includes(scriptFileName)) return false;
                   if (trimmed.startsWith('> source(')) return false;
                   if (trimmed.startsWith('> setwd(')) return false;
                   if (trimmed.startsWith('> options(')) return false;
                   if (trimmed.startsWith('> tryCatch({')) return false;
                   if (trimmed.startsWith('> while(dev.cur()')) return false;
                   if (trimmed === '+') return false;
+                  if (trimmed.startsWith('+')) {
+                      if (trimmed.includes('png(file =')) return false;
+                      if (trimmed.includes('dev.off()')) return false;
+                      if (trimmed.includes('cat("SENTINEL_DONE')) return false;
+                      if (trimmed.includes('}, error = function(e)')) return false;
+                      if (trimmed.includes('})')) return false;
+                  }
                   return true;
               });
               finalOutput = lines.join('\n').replace(/^> /gm, '').trim();
