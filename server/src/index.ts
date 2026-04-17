@@ -262,13 +262,23 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
           if (session.output.includes(sentinel) || ++checkCount > 250) {
               clearInterval(waitForDone);
               let out = session.output.split(sentinel)[0];
-              const lines = out.split('\n').filter(l => !l.includes('lw_') && !l.startsWith('> source(') && !l.startsWith('> setwd('));
+              
+              // Clean up ONLY known internal wrapper echoes
+              const lines = out.split('\n').filter(l => {
+                  const t = l.trim();
+                  if (t.startsWith('> source(text=') || t.startsWith('> options(warn=') || t.startsWith('> suppressMessages(')) return false;
+                  if (t.includes('SENTINEL_DONE_') || t.includes('lw_vars_')) return false;
+                  return true;
+              });
+
               const varFile = `/tmp/lw_vars_${userId}.json`;
               let variables = {};
               if (fs.existsSync(varFile)) { try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); fs.unlinkSync(varFile); } catch(e) {} }
+              
               const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).sort();
               const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
               plotFiles.forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
+              
               res.json({ stdout: lines.join('\n').trim(), plots, variables });
           }
       }, 100);
