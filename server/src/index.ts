@@ -185,7 +185,12 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
 const compileProject = async (project: any, user: any, body: any) => {
     const { currentContent, currentFileId, preferredMain } = body;
     const workDir = `/tmp/lw_proj_${project._id}`;
-    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+    
+    // Verwijder oude map volledig om 'ghost' bestanden te voorkomen
+    if (fs.existsSync(workDir)) {
+        fs.rmSync(workDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(workDir, { recursive: true });
 
     // Haal de volledige documenten op (inclusief content en binaryData)
     const documents = await Document.find({ project: project._id }).lean();
@@ -243,7 +248,12 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       const userId = req.user._id.toString();
       const session = getRSession(userId);
       const workDir = `/tmp/lw_r_work_${userId}`;
-      if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+      
+      if (fs.existsSync(workDir)) {
+          fs.rmSync(workDir, { recursive: true, force: true });
+      }
+      fs.mkdirSync(workDir, { recursive: true });
+
       for (const doc of documents) {
           const fullPath = path.join(workDir, doc.path, doc.name);
           fs.mkdirSync(path.dirname(fullPath), { recursive: true });
