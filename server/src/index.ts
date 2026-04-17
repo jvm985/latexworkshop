@@ -21,7 +21,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3001;
-// GEFORCEERD OP DE JUISTE DATABASE
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
 
@@ -187,13 +186,21 @@ const compileProject = async (project: any, documents: any[], body: any) => {
         if (preferredMain && doc.name === preferredMain) mainFile = relPath;
         if (doc.isMain && !mainFile) mainFile = relPath;
     }
-    if (!mainFile) mainFile = documents.find(d => d.name.endsWith('.tex'))?.name || '';
+    if (!mainFile) {
+        const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md') || d.name.endsWith('.Rmd'));
+        if (fallback) mainFile = path.join(fallback.path, fallback.name);
+    }
+    if (!mainFile) return { error: 'Geen hoofdbestand gevonden.' };
     
     const finalPdf = path.join(workDir, 'output.pdf');
     let command = '';
     if (mainFile.endsWith('.Rmd')) command = `Rscript -e "rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
     else if (mainFile.endsWith('.typ')) command = `typst compile "${mainFile}" "output.pdf"`;
-    else command = `latexmk -pdf -interaction=nonstopmode -f "${mainFile}"`;
+    else {
+        const compiler = project.compiler || 'pdflatex';
+        const engine = compiler === 'xelatex' ? '-pdfxe' : (compiler === 'lualatex' ? '-pdflua' : '-pdf');
+        command = `latexmk ${engine} -interaction=nonstopmode -f "${mainFile}"`;
+    }
 
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 120000 }, (error, stdout, stderr) => {
@@ -205,7 +212,8 @@ const compileProject = async (project: any, documents: any[], body: any) => {
 
 app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
-  const documents = await Document.find({ project: project?._id, isFolder: false });
+  if (!project) return res.status(404).send('Not found');
+  const documents = await Document.find({ project: project._id, isFolder: false });
   const { currentContent, currentFileId } = req.body;
   const activeDoc = documents.find(d => d._id.toString() === currentFileId);
   const isR = activeDoc?.name.match(/\.[Rr]$/);
@@ -270,6 +278,31 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       const result: any = await compileProject(project, documents, req.body);
       res.sendFile(result.pdfPath);
   } catch (err: any) { res.status(500).json(err); }
+});
+
+app.get('/api/test-system', async (req, res) => {
+    const testDir = '/tmp/lw_system_tests';
+    if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
+    
+    const results: any[] = [];
+    const runCmd = (name, cmd, files) => {
+        const work = path.join(testDir, name.replace(/ /g,'_'));
+        if (!fs.existsSync(work)) fs.mkdirSync(work, { recursive: true });
+        for (const [f,c] of Object.entries(files)) fs.writeFileSync(path.join(work, f), c as string);
+        return new Promise((resolve) => {
+            exec(cmd, { cwd: work, timeout: 30000 }, (err, stdout, stderr) => {
+                results.push({ name, success: !err, stdout, stderr });
+                resolve(null);
+            });
+        });
+    };
+
+    await runCmd('LaTeX OK', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}OK\\end{document}' });
+    await runCmd('LaTeX FAIL', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}\\undefined\\end{document}' });
+    await runCmd('RMarkdown OK', 'Rscript -e "rmarkdown::render(\'main.Rmd\', output_file=\'out.pdf\')" ', { 'main.Rmd': '---\noutput: pdf_document\n---\n# OK' });
+    await runCmd('Typst OK', 'typst compile main.typ out.pdf', { 'main.typ': '= OK' });
+
+    res.json(results);
 });
 
 io.on('connection', (socket) => {
