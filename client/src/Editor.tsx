@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight,
   LogOut, Loader, 
   Eraser, Database, Link, FilePlus, FolderPlus, Trash2, 
-  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download
+  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download, Copy
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
