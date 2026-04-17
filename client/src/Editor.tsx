@@ -9,13 +9,11 @@ import {
   ChevronDown, ChevronRight,
   LogOut, Loader, 
   Eraser, Database, Link, FilePlus, Copy, Trash2, 
-  MoreVertical, Edit3, FolderPlus, Folder, Upload, ImageIcon, FileCode, CheckCircle2, Download,
-  Share2, Settings, Zap, Layers, List, ScrollText, Check, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon, Eye, UserPlus, User as UserIcon
+  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
-import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
@@ -76,15 +74,6 @@ export default function EditorView() {
   const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
   
   const [compiling, setCompiling] = useState(false);
-  const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
-  const [logs, setLogs] = useState<string | null>(null);
-  const [showErrorView, setShowErrorView] = useState(false);
-  const [copied, setCopied] = useState(false);
-  
-  const [showShare, setShowShare] = useState(false);
-  const [shareEmail, setShareEmail] = useState('');
-  const [sharePerm, setSharePerm] = useState('read');
-  const [showSettings, setShowSettings] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
   const [browsingProject, setBrowsingProject] = useState<any>(null);
@@ -116,7 +105,6 @@ export default function EditorView() {
   
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
-  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -168,11 +156,7 @@ export default function EditorView() {
           setPdfUrl(window.URL.createObjectURL(blob));
           setRResult(null);
       }
-      setLastStatus('success');
-      setShowErrorView(false);
     } catch (err: any) {
-      setLastStatus('error');
-      setShowErrorView(true);
     } finally { setCompiling(false); }
   };
 
@@ -198,7 +182,6 @@ export default function EditorView() {
           if (folderPath) setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
           return;
       }
-      
       let fullDoc = item;
       if (!item.isFolder && !item.isBinary && (item.content === undefined || item.content === "")) {
           try {
@@ -263,11 +246,6 @@ export default function EditorView() {
   const setAsMain = async (fileId: string) => {
       await axios.post(`${API_URL}/projects/${id}/files/${fileId}/main`, {}, { headers: { Authorization: `Bearer ${token}` } });
       fetchAll();
-  };
-
-  const updateProject = async (updates: any) => {
-      const res = await axios.patch(`${API_URL}/projects/${id}`, updates, { headers: { Authorization: `Bearer ${token}` } });
-      setProject(res.data);
   };
 
   const buildTree = () => {
@@ -465,7 +443,7 @@ export default function EditorView() {
 
       {showLinkModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: '#252526', width: '600px', height: '500px', borderRadius: '16px', padding: '32px', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ background: '#252526', width: '600px', height: '500px', borderRadius: '16px', border: '1px solid #333', padding: '32px', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}><h2>Link from other project</h2><X style={{ cursor: 'pointer' }} onClick={() => setShowLinkModal(false)}/></div>
                   <div style={{ flex: 1, display: 'flex', gap: '20px', minHeight: 0 }}>
                       <div style={{ flex: 1, background: '#1e1e1e', padding: '12px', overflowY: 'auto' }}>
@@ -483,7 +461,7 @@ export default function EditorView() {
           </div>
       )}
 
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) renameFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Rename</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', cursor: 'pointer' }}>Set Main</button>}</div>}
+      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) renameFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Rename</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', cursor: 'pointer' }}>Set Main</button>}</div>}
     </div>
   );
 }
