@@ -219,7 +219,7 @@ const compileProject = async (project: any, user: any, body: any) => {
     
     const finalPdf = path.join(workDir, 'output.pdf');
     let command = '';
-    if (mainFile.endsWith('.Rmd')) command = `Rscript -e "rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
+    if (mainFile.endsWith('.Rmd')) command = `Rscript -e ".libPaths(c('/usr/local/lib/R/site-library', .libPaths())); rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
     else if (mainFile.endsWith('.typ')) command = `typst compile "${mainFile}" "output.pdf"`;
     else command = `latexmk -pdf -interaction=nonstopmode -f "${mainFile}"`;
 
