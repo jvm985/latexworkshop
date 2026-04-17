@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
-  Eye, Folder, FilePlus, FolderPlus, 
-  AlertCircle, X, UserPlus, User as UserIcon,
-  ChevronDown, ChevronRight, Trash2, CheckCircle2, Check,
+  FolderPlus, 
+  X, UserPlus, 
+  ChevronDown, ChevronRight, Trash2, CheckCircle2,
   Download, LogOut, Loader, Upload,
-  Copy, FileCode, ImageIcon, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon,
+  Copy, ImageIcon, 
   List, ScrollText, Edit3, MoreVertical,
-  Zap, Layers, Eraser, Database, Link
+  Eraser, Database, Link, FilePlus
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
@@ -33,22 +33,6 @@ export default function EditorView() {
   const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
   
   const [compiling, setCompiling] = useState(false);
-  const [compileMode, setCompileMode] = useState<'normal' | 'draft'>('normal');
-  const [usePreamble, setUsePreamble] = useState(false);
-  const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
-  const [logs, setLogs] = useState<string | null>(null);
-  const [parsedErrors, setParsedErrors] = useState<any[]>([]);
-  const [logView, setLogView] = useState<'ordered' | 'raw'>('ordered');
-  const [showErrorView, setShowErrorView] = useState(false);
-  const [copied, setCopied] = useState(false);
-  
-  const [showShare, setShowShare] = useState(false);
-  const [shareEmail, setShareEmail] = useState('');
-  const [sharePerm, setSharePerm] = useState('read');
-  const [showSettings, setShowSettings] = useState(false);
-  const [showFullLogs, setShowFullLogs] = useState(false);
-  const [showCompileOptions, setShowCompileOptions] = useState(false);
-  
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
   const [browsingProject, setBrowsingProject] = useState<any>(null);
@@ -56,32 +40,23 @@ export default function EditorView() {
   const [linkTargetDoc, setLinkTargetDoc] = useState<any>(null);
   
   const [leftWidth, setLeftWidth] = useState(240);
-  const [editorWidth, setEditorWidth] = useState(50);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
-  
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
-  const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
-  const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
   const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
   
   const [activeTab, setActiveTab] = useState<'plots' | 'variables'>('plots');
   const [currentPlotIndex, setCurrentPlotPlotIndex] = useState(0);
-  const [resultsHeight, setResultsHeight] = useState(300);
   const [outputHeight, setOutputHeight] = useState(150);
   
-  const isResizingRef = useRef(false);
   const isResizingSidebarRef = useRef(false);
-  const isResizingResultsRef = useRef(false);
   const isResizingOutputRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
   const activeDocIdRef = useRef<string | null>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const viewerInstanceRef = useRef<any>(null);
   
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
@@ -137,11 +112,7 @@ export default function EditorView() {
           setPdfUrl(window.URL.createObjectURL(blob));
           setRResult(null);
       }
-      setLastStatus('success');
-      setShowErrorView(false);
     } catch (err: any) {
-      setLastStatus('error');
-      setShowErrorView(true);
     } finally { setCompiling(false); }
   };
 

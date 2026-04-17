@@ -124,6 +124,11 @@ app.get('/api/projects', authenticate, async (req: any, res) => {
   res.json(projects);
 });
 
+app.get('/api/projects/all', authenticate, async (req: any, res) => {
+  const projects = await Project.find({}).populate('owner', 'name email');
+  res.json(projects);
+});
+
 app.post('/api/projects', authenticate, async (req: any, res) => {
   const { name } = req.body;
   const project = await Project.create({ owner: req.user._id, name, type: 'project' });
