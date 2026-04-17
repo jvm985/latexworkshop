@@ -9,12 +9,11 @@ import {
   X, 
   ChevronDown, ChevronRight,
   LogOut, Loader, 
-  Eraser, Database, Link, FilePlus, Copy, Trash2
+  Eraser, Database, Link, FilePlus
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
-import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
@@ -83,7 +82,6 @@ export default function EditorView() {
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
   
   const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
@@ -101,7 +99,6 @@ export default function EditorView() {
   
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
-  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -207,19 +204,6 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const deleteFile = async (docId: string) => {
-    if (!confirm('Delete item?')) return;
-    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (activeDoc?._id === docId) setActiveDoc(null);
-    fetchAll();
-  };
-
-  const copyFile = async (doc: any) => {
-      const newName = prompt('New name:', doc.name + ' (copy)'); if (!newName) return;
-      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
-      fetchAll();
-  };
-
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
     documents.forEach(doc => {
@@ -247,7 +231,7 @@ export default function EditorView() {
       const doc = isFolder ? item._doc : item;
       return (
         <div key={folderPath}>
-          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
+          <div onClick={() => switchDoc(item, folderPath)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
             {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : <FileText size={14} color="#519aba"/>}
             <span style={{ fontStyle: doc?.isLink ? 'italic' : 'normal' }}>{key}</span>
           </div>
@@ -265,7 +249,7 @@ export default function EditorView() {
           if (rect) setOutputHeight(Math.max(50, Math.min(rect.height - 50, e.clientY - rect.top)));
       }
     };
-    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; setContextMenu(null); };
+    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
@@ -293,7 +277,6 @@ export default function EditorView() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={async () => { const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }); setAvailableProjects(res.data.filter((p:any)=>p._id!==id)); setShowLinkModal(true); }} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><Link size={14}/></button>
               <button onClick={() => addFile(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FilePlus size={14}/></button>
-              <button onClick={() => addFile(true)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FolderPlus size={14}/></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
@@ -396,8 +379,6 @@ export default function EditorView() {
               </div>
           </div>
       )}
-
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button></div>}
     </div>
   );
 }
