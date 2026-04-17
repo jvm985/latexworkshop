@@ -169,14 +169,28 @@ export default function EditorView() {
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
   };
 
-  const switchDoc = (item: any, folderPath?: string) => {
+  const switchDoc = async (item: any, folderPath?: string) => {
       if (!item) return;
       if (item._isFolder) {
           if (folderPath) setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
           return;
       }
-      setActiveDoc(item);
-      activeDocIdRef.current = item._id;
+      
+      let fullDoc = item;
+      // Lazy load content if not already present
+      if (!item.isFolder && !item.isBinary && (item.content === undefined || item.content === "")) {
+          try {
+              const res = await axios.get(`${API_URL}/projects/${id}/files/${item._id}`, { headers: { Authorization: `Bearer ${token}` } });
+              fullDoc = res.data;
+              // Update the document list with the content so we don't have to fetch it again
+              setDocuments(prev => prev.map(d => d._id === item._id ? fullDoc : d));
+          } catch (e) {
+              console.error('Failed to lazy load document content');
+          }
+      }
+
+      setActiveDoc(fullDoc);
+      activeDocIdRef.current = fullDoc._id;
   };
 
   const toggleVar = (name: string) => {

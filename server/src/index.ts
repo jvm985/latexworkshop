@@ -69,17 +69,17 @@ const Document = mongoose.model('Document', documentSchema);
 async function resolveDocuments(projectId: string, user: any, visited = new Set()) {
     if (visited.has(projectId.toString())) return [];
     visited.add(projectId.toString());
-    const docs = await Document.find({ project: projectId }).lean();
+    const docs = await Document.find({ project: projectId }).select('-content -binaryData').lean();
     let resolved: any[] = [];
     for (const doc of docs) {
         if (doc.isLink && doc.linkedDocument) {
             const linkedProj = await Project.findOne({ _id: doc.linkedProject, $or: [{ owner: user._id }, { 'sharedWith.email': user.email }] });
             if (!linkedProj) continue;
-            const targetDoc: any = await Document.findById(doc.linkedDocument).lean();
+            const targetDoc: any = await Document.findById(doc.linkedDocument).select('-content -binaryData').lean();
             if (!targetDoc) continue;
             resolved.push({ ...targetDoc, _id: doc._id, project: doc.project, path: doc.path, name: doc.name, isLink: true, originalId: targetDoc._id });
             if (targetDoc.isFolder) {
-                const children = await Document.find({ project: doc.linkedProject, path: new RegExp(`^${targetDoc.path}${targetDoc.name}/`) }).lean();
+                const children = await Document.find({ project: doc.linkedProject, path: new RegExp(`^${targetDoc.path}${targetDoc.name}/`) }).select('-content -binaryData').lean();
                 for (const child of children) {
                     const relativePath = child.path.substring(targetDoc.path.length + targetDoc.name.length + 1);
                     resolved.push({ ...child, _id: `${doc._id}_${child._id}`, project: doc.project, path: `${doc.path}${doc.name}/${relativePath}`, isLink: true });
@@ -152,6 +152,12 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
   if (!project) return res.status(404).send('Not found');
   const documents = await resolveDocuments(project._id as any, req.user);
   res.json({ project, documents });
+});
+
+app.get('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
+    const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
+    if (!doc) return res.status(404).send('Not found');
+    res.json(doc);
 });
 
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
