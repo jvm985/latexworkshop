@@ -100,7 +100,7 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 app.get('/api/projects', authenticate, async (req: any, res) => {
-  console.log('Fetching projects for:', req.user.email);
+  console.log('Fetching projects for user:', JSON.stringify(req.user));
   const projects = await Project.find({ $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   console.log('Found projects count:', projects.length);
   res.json(projects);
