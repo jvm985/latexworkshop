@@ -192,13 +192,11 @@ const compileProject = async (project: any, user: any, body: any) => {
     const { currentContent, currentFileId, preferredMain } = body;
     const workDir = `/tmp/lw_proj_${project._id}`;
     
-    // Verwijder oude map volledig om 'ghost' bestanden te voorkomen
     if (fs.existsSync(workDir)) {
         fs.rmSync(workDir, { recursive: true, force: true });
     }
     fs.mkdirSync(workDir, { recursive: true });
 
-    // Haal de volledige documenten op (inclusief content en binaryData)
     const documents = await Document.find({ project: project._id }).lean();
 
     let mainFile = '';
@@ -226,7 +224,7 @@ const compileProject = async (project: any, user: any, body: any) => {
         const fallback = documents.find(d => d.name.endsWith('.tex') || d.name.endsWith('.typ') || d.name.endsWith('.md') || d.name.endsWith('.Rmd'));
         if (fallback) mainFile = path.join(fallback.path, fallback.name);
     }
-    if (!mainFile) return { error: 'Geen hoofdbestand gevonden.' };
+    if (!mainFile) throw { error: 'Geen hoofdbestand gevonden.' };
     
     const finalPdf = path.join(workDir, 'output.pdf');
     let command = '';
@@ -236,8 +234,9 @@ const compileProject = async (project: any, user: any, body: any) => {
 
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 120000 }, (error, stdout, stderr) => {
-            if (fs.existsSync(finalPdf)) resolve({ pdfPath: finalPdf, logs: stdout + stderr });
-            else reject({ error: 'Failed', logs: stdout + stderr });
+            const logs = stdout + stderr;
+            if (fs.existsSync(finalPdf)) resolve({ pdfPath: finalPdf, logs });
+            else reject({ error: 'Failed', logs });
         });
     });
 };
@@ -245,9 +244,9 @@ const compileProject = async (project: any, user: any, body: any) => {
 app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
   if (!project) return res.status(404).send('Not found');
-  const documents = await Document.find({ project: project._id, isFolder: false });
+
   const { currentContent, currentFileId } = req.body;
-  const activeDoc = documents.find(d => d._id.toString() === currentFileId);
+  const activeDoc = await Document.findById(currentFileId);
   const isR = activeDoc?.name.match(/\.[Rr]$/);
 
   if (isR) {
@@ -255,11 +254,10 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       const session = getRSession(userId);
       const workDir = `/tmp/lw_r_work_${userId}`;
       
-      if (fs.existsSync(workDir)) {
-          fs.rmSync(workDir, { recursive: true, force: true });
-      }
+      if (fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true });
       fs.mkdirSync(workDir, { recursive: true });
 
+      const documents = await Document.find({ project: project._id, isFolder: false });
       for (const doc of documents) {
           const fullPath = path.join(workDir, doc.path, doc.name);
           fs.mkdirSync(path.dirname(fullPath), { recursive: true });
@@ -319,10 +317,14 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       }, 100);
       return;
   }
+
   try {
       const result: any = await compileProject(project, req.user, req.body);
       res.sendFile(result.pdfPath);
-  } catch (err: any) { res.status(500).json(err); }
+  } catch (err: any) {
+      console.error("Compilation Error:", err);
+      res.status(500).json(err);
+  }
 });
 
 app.get('/api/test-system', async (req, res) => {
