@@ -18,11 +18,14 @@ export default function Dashboard() {
   const user = JSON.parse(localStorage.getItem('latex_user') || '{}');
 
   const fetchProjects = async () => {
+    console.log('Fetching projects...', { token: !!token });
     try {
       const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } });
+      console.log('Fetched projects count:', res.data.length);
       setProjects(res.data);
-    } catch (e) {
-      navigate('/login');
+    } catch (e: any) {
+      console.error('Fetch projects failed:', e.response?.data || e.message);
+      if (e.response?.status === 401) navigate('/login');
     } finally {
       setLoading(false);
     }
