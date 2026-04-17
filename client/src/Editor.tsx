@@ -271,7 +271,11 @@ export default function EditorView() {
                                 <button onClick={() => setRResult((p:any)=>({...p, stdout:''}))} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><Eraser size={10}/></button>
                             </div>
                             <div ref={consoleRef} style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#000' }}>
-                                <pre style={{ color: '#4ade80', fontSize: '13px', fontFamily: 'monospace', margin: 0 }}>{rResult.stdout}</pre>
+                                <pre style={{ fontSize: '13px', fontFamily: 'monospace', margin: 0 }}>
+                                    {(rResult.stdout || '').split('\n').map((line, i) => (
+                                        <div key={i} style={{ color: (line.startsWith('> ') || line.startsWith('+ ')) ? '#888' : '#4ade80', whiteSpace: 'pre-wrap' }}>{line}</div>
+                                    ))}
+                                </pre>
                             </div>
                         </div>
                         <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111' }}></div>
