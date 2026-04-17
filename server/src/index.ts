@@ -302,6 +302,25 @@ app.get('/api/test-system', async (req, res) => {
     await runCmd('RMarkdown OK', 'Rscript -e "rmarkdown::render(\'main.Rmd\', output_file=\'out.pdf\')" ', { 'main.Rmd': '---\noutput: pdf_document\n---\n# OK' });
     await runCmd('Typst OK', 'typst compile main.typ out.pdf', { 'main.typ': '= OK' });
 
+    // R Interactive Test
+    const rTest = () => {
+        return new Promise((resolve) => {
+            const session = getRSession("test_user");
+            const sentinel = `TEST_DONE_${Date.now()}`;
+            let output = '';
+            const handler = (data) => {
+                output += data.toString();
+                if (output.includes(sentinel)) {
+                    session.process.stdout.off('data', handler);
+                    resolve({ name: 'R Interactive OK', success: output.includes('21'), stdout: output });
+                }
+            };
+            session.process.stdout.on('data', handler);
+            session.process.stdin.write(`print(10+11)\ncat("${sentinel}\\n")\n`);
+        });
+    };
+    results.push(await rTest());
+
     res.json(results);
 });
 
