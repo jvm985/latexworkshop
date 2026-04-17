@@ -285,7 +285,7 @@ app.get('/api/test-system', async (req, res) => {
     if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
     
     const results: any[] = [];
-    const runCmd = (name, cmd, files) => {
+    const runCmd = (name: string, cmd: string, files: any) => {
         const work = path.join(testDir, name.replace(/ /g,'_'));
         if (!fs.existsSync(work)) fs.mkdirSync(work, { recursive: true });
         for (const [f,c] of Object.entries(files)) fs.writeFileSync(path.join(work, f), c as string);
