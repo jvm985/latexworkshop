@@ -176,6 +176,12 @@ app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res
     res.json({ success: true });
 });
 
+app.post('/api/projects/:id/files/:fileId/main', authenticate, async (req: any, res) => {
+    await Document.updateMany({ project: req.params.id }, { isMain: false });
+    await Document.updateOne({ _id: req.params.fileId, project: req.params.id }, { isMain: true });
+    res.json({ success: true });
+});
+
 app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
   await Project.deleteOne({ _id: req.params.id, owner: req.user._id });
   await Document.deleteMany({ project: req.params.id });
