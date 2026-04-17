@@ -84,7 +84,6 @@ export default function EditorView() {
   const [editorWidth, setEditorWidth] = useState(50);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
   
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
   const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
   const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
@@ -289,7 +288,7 @@ export default function EditorView() {
       const itemId = doc?._id || folderPath;
       return (
         <div key={itemId} onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} onDragLeave={() => setDragOverNode(null)} onDrop={(e) => onDrop(e, item)} style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}>
-          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} draggable={!!doc} onDragStart={(e) => onDragStart(e, doc)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between' }}>
+          <div onClick={() => switchDoc(item, folderPath)} draggable={!!doc} onDragStart={(e) => onDragStart(e, doc)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
                 {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : (doc?.isBinary ? <ImageIcon size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>)}
@@ -299,9 +298,13 @@ export default function EditorView() {
             <div style={{ position: 'relative' }}>
                 <button onClick={(e) => { e.stopPropagation(); setActiveItemMenu(activeItemMenu === itemId ? null : itemId); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><MoreVertical size={14}/></button>
                 {activeItemMenu === itemId && (
-                    <div style={{ position: 'absolute', top: '100%', right: 0, background: '#252526', border: '1px solid #444', borderRadius: '6px', zIndex: 200, width: '140px', padding: '4px', boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>
+                    <div style={{ position: 'absolute', top: '100%', right: 0, background: '#252526', border: '1px solid #444', borderRadius: '6px', zIndex: 200, width: '160px', padding: '4px', boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>
                         <button onClick={(e) => { e.stopPropagation(); if (doc) renameFile(doc); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Edit3 size={12}/> Rename</button>
+                        <button onClick={(e) => { e.stopPropagation(); if (doc) copyFile(doc); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Copy size={12}/> Copy</button>
                         {doc && !doc.isFolder && <a href={`${API_URL}/projects/${id}/files/${doc._id}/raw`} download={doc.name} onClick={(e) => e.stopPropagation()} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}><Download size={12}/> Download</a>}
+                        {doc && !doc.isMain && !doc.isBinary && !doc.isFolder && (
+                            <button onClick={(e) => { e.stopPropagation(); setAsMain(doc._id); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle2 size={12}/> Set Main</button>
+                        )}
                         <button onClick={(e) => { e.stopPropagation(); if (doc) deleteFile(doc._id); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Trash2 size={12}/> Delete</button>
                         <div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>
                         <button onClick={(e) => { e.stopPropagation(); addFile(false, doc || item); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><FilePlus size={12}/> New File</button>
@@ -328,7 +331,7 @@ export default function EditorView() {
           if (rect) setOutputHeight(Math.max(50, Math.min(rect.height - 50, e.clientY - rect.top)));
       }
     };
-    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingRef.current = false; isResizingOutputRef.current = false; setContextMenu(null); };
+    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingRef.current = false; isResizingOutputRef.current = false; };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, [leftWidth]);
@@ -460,8 +463,6 @@ export default function EditorView() {
               </div>
           </div>
       )}
-
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) renameFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Rename</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', cursor: 'pointer' }}>Set Main</button>}</div>}
     </div>
   );
 }
