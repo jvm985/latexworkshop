@@ -11,7 +11,7 @@ export default function Dashboard() {
   console.log('!!! DASHBOARD MOUNTED !!!');
   
   const [projects, setProjects] = useState([]);
-  const [search, setSearch] = useState('');
+  const [search] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
