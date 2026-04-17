@@ -105,10 +105,33 @@ app.get('/api/debug/all-projects', async (req, res) => {
 });
 
 app.get('/api/projects', authenticate, async (req: any, res) => {
-  console.log('Fetching projects for user:', JSON.stringify(req.user));
-  const projects = await Project.find({ $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
-  console.log('Found projects count:', projects.length);
-  res.json(projects);
+  console.log('--- FETCH PROJECTS START ---');
+  console.log('User from request:', req.user.email, req.user._id);
+  
+  try {
+    const projects = await Project.find({ 
+      $or: [
+        { owner: req.user._id }, 
+        { owner: new mongoose.Types.ObjectId(req.user._id) },
+        { 'sharedWith.email': req.user.email }
+      ] 
+    }).populate('owner', 'name email');
+    
+    console.log('Query result count:', projects.length);
+    
+    if (projects.length === 0) {
+        console.log('No projects found by ID, trying by email backup...');
+        const allProjects = await Project.find({}).populate('owner', 'name email');
+        const byEmail = allProjects.filter(p => p.owner && (p.owner as any).email === req.user.email);
+        console.log('Projects found by email backup:', byEmail.length);
+        return res.json(byEmail);
+    }
+
+    res.json(projects);
+  } catch (err: any) {
+    console.error('Fetch projects error:', err);
+    res.status(500).send(err.message);
+  }
 });
 
 app.post('/api/projects', authenticate, async (req: any, res) => {
