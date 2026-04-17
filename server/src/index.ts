@@ -5,22 +5,23 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
-import { exec } from 'child_process';
-import fs from 'fs';
+import { exec, spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, { 
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+const io = new Server(httpServer, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3001;
+// GEFORCEERD OP DE JUISTE DATABASE
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
 
@@ -39,8 +40,8 @@ const User = mongoose.model('User', userSchema);
 const projectSchema = new mongoose.Schema({
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
-  type: { type: String, default: 'latex' },
-  compiler: { type: String, default: 'pdflatex' },
+  type: { type: String, default: 'project' },
+  compiler: { type: String, enum: ['pdflatex', 'xelatex', 'lualatex', 'typst', 'pandoc'], default: 'pdflatex' },
   sharedWith: [{
     email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
@@ -57,15 +58,54 @@ const documentSchema = new mongoose.Schema({
   binaryData: { type: Buffer },
   isBinary: { type: Boolean, default: false },
   isFolder: { type: Boolean, default: false },
-  isMain: { type: Boolean, default: false }
+  isMain: { type: Boolean, default: false },
+  isLink: { type: Boolean, default: false },
+  linkedProject: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  linkedDocument: { type: mongoose.Schema.Types.ObjectId, ref: 'Document' }
 });
 const Document = mongoose.model('Document', documentSchema);
 
+async function resolveDocuments(projectId: string, user: any, visited = new Set()) {
+    if (visited.has(projectId.toString())) return [];
+    visited.add(projectId.toString());
+    const docs = await Document.find({ project: projectId }).lean();
+    let resolved: any[] = [];
+    for (const doc of docs) {
+        if (doc.isLink && doc.linkedDocument) {
+            const linkedProj = await Project.findOne({ _id: doc.linkedProject, $or: [{ owner: user._id }, { 'sharedWith.email': user.email }] });
+            if (!linkedProj) continue;
+            const targetDoc: any = await Document.findById(doc.linkedDocument).lean();
+            if (!targetDoc) continue;
+            resolved.push({ ...targetDoc, _id: doc._id, project: doc.project, path: doc.path, name: doc.name, isLink: true, originalId: targetDoc._id });
+            if (targetDoc.isFolder) {
+                const children = await Document.find({ project: doc.linkedProject, path: new RegExp(`^${targetDoc.path}${targetDoc.name}/`) }).lean();
+                for (const child of children) {
+                    const relativePath = child.path.substring(targetDoc.path.length + targetDoc.name.length + 1);
+                    resolved.push({ ...child, _id: `${doc._id}_${child._id}`, project: doc.project, path: `${doc.path}${doc.name}/${relativePath}`, isLink: true });
+                }
+            }
+        } else resolved.push(doc);
+    }
+    return resolved;
+}
+
+// --- R SESSION MANAGEMENT ---
+const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, output: string }>();
+const getRSession = (userId: string) => {
+  if (userSessions.has(userId)) return userSessions.get(userId)!;
+  const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
+  const session = { process: rProcess, output: '' };
+  rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stdin.write(`.libPaths(c("/usr/local/lib/R/site-library", .libPaths()))\n`);
+  rProcess.stdin.write(`options(device = function(...) { png(file = "/tmp/lw_plot_${userId}_%03d.png", width = 800, height = 600) })\n`);
+  userSessions.set(userId, session);
+  return session;
+};
+
 // --- AUTH MIDDLEWARE ---
 const authenticate = async (req: any, res: any, next: any) => {
-  const authHeader = req.headers.authorization;
-  console.log('Auth check for path:', req.path, 'Has header:', !!authHeader);
-  const token = authHeader?.split(' ')[1];
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).send('Unauthorized');
   try {
     const ticket = await client.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
@@ -75,85 +115,33 @@ const authenticate = async (req: any, res: any, next: any) => {
     if (!user) user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
     req.user = user;
     next();
-  } catch (err) { 
-    console.error('Auth check failed:', err);
-    res.status(401).send('Invalid token'); 
-  }
+  } catch (err) { res.status(401).send('Invalid token'); }
 };
 
 // --- ROUTES ---
-app.post('/api/auth/google', async (req, res) => {
-  console.log('--- LOGIN ATTEMPT ---');
-  const { credential } = req.body;
-  try {
-    const ticket = await client.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
-    const payload = ticket.getPayload();
-    console.log('Login for:', payload?.email);
-    if (!payload || !payload.email) throw new Error('No email in payload');
-    let user = await User.findOne({ email: payload.email });
-    if (!user) user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
-    res.json({ token: credential, user });
-  } catch (err: any) { 
-    console.error('Login error:', err.message);
-    res.status(400).send('Login failed'); 
-  }
-});
-
-app.get('/api/debug/all-projects', async (req, res) => {
-  const projects = await Project.find({}).populate('owner', 'name email');
+app.get('/api/projects', authenticate, async (req: any, res) => {
+  const projects = await Project.find({ $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   res.json(projects);
 });
 
-app.get('/api/projects', authenticate, async (req: any, res) => {
-  console.log('--- FETCH PROJECTS START ---');
-  console.log('User from request:', req.user.email, req.user._id);
-  
-  try {
-    const projects = await Project.find({ 
-      $or: [
-        { owner: req.user._id }, 
-        { owner: new mongoose.Types.ObjectId(req.user._id) },
-        { 'sharedWith.email': req.user.email }
-      ] 
-    }).populate('owner', 'name email');
-    
-    console.log('Query result count:', projects.length);
-    console.log('Project names:', projects.map(p => p.name).join(', '));
-    
-    if (projects.length === 0) {
-        console.log('No projects found by ID, trying by email backup...');
-        const allProjects = await Project.find({}).populate('owner', 'name email');
-        const byEmail = allProjects.filter(p => p.owner && (p.owner as any).email === req.user.email);
-        console.log('Projects found by email backup:', byEmail.length);
-        return res.json(byEmail);
-    }
-
-    res.json(projects);
-  } catch (err: any) {
-    console.error('Fetch projects error:', err);
-    res.status(500).send(err.message);
-  }
-});
-
 app.post('/api/projects', authenticate, async (req: any, res) => {
-  const { name, type } = req.body;
-  const project = await Project.create({ owner: req.user._id, name, type: type || 'latex' });
-  await Document.create({ project: project._id, name: 'main.tex', content: 'Hello', isMain: true });
+  const { name } = req.body;
+  const project = await Project.create({ owner: req.user._id, name, type: 'project' });
+  await Document.create({ project: project._id, name: 'main.tex', content: '\\documentclass{article}\n\\begin{document}\nHello!\n\\end{document}', isMain: true });
   res.json(project);
 });
 
 app.get('/api/projects/:id', authenticate, async (req: any, res) => {
   const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   if (!project) return res.status(404).send('Not found');
-  const documents = await Document.find({ project: project._id });
+  const documents = await resolveDocuments(project._id as any, req.user);
   res.json({ project, documents });
 });
 
-// Basic placeholders for missing routes during restore
 app.post('/api/projects/:id/files', authenticate, async (req: any, res) => {
-    const { name, path, isFolder, isBinary, content, binaryData } = req.body;
-    const doc = await Document.create({ project: req.params.id, name, path, isFolder, isBinary, content: content || '', binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null });
-    res.json(doc);
+  const { name, path, isFolder, isBinary, content, binaryData } = req.body;
+  const doc = await Document.create({ project: req.params.id, name, path, isFolder, isBinary, content: content || '', binaryData: binaryData ? Buffer.from(binaryData, 'base64') : null });
+  res.json(doc);
 });
 
 app.patch('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
@@ -166,6 +154,119 @@ app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res
     res.json({ success: true });
 });
 
+app.post('/api/projects/:id/links', authenticate, async (req: any, res) => {
+    const { targetProjectId, targetDocumentId, name, path } = req.body;
+    const targetProj = await Project.findOne({ _id: targetProjectId, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
+    if (!targetProj) return res.status(403).send('No access');
+    const link = await Document.create({ project: req.params.id, name, path, isLink: true, linkedProject: targetProjectId, linkedDocument: targetDocumentId });
+    res.json(link);
+});
+
+const compileProject = async (project: any, documents: any[], body: any) => {
+    const { currentContent, currentFileId, preferredMain } = body;
+    const workDir = `/tmp/lw_proj_${project._id}`;
+    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+
+    let mainFile = '';
+    for (const doc of documents) {
+        if (doc.isFolder) continue;
+        const fullPath = path.join(workDir, doc.path, doc.name);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        let content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+        if (doc.isLink && doc.linkedDocument) {
+            const target: any = await Document.findById(doc.linkedDocument).lean();
+            if (target) content = target.content;
+        }
+        fs.writeFileSync(fullPath, doc.isBinary && doc.binaryData ? doc.binaryData : (content || ''));
+        const relPath = path.join(doc.path, doc.name);
+        if (preferredMain && doc.name === preferredMain) mainFile = relPath;
+        if (doc.isMain && !mainFile) mainFile = relPath;
+    }
+    if (!mainFile) mainFile = documents.find(d => d.name.endsWith('.tex'))?.name || '';
+    
+    const finalPdf = path.join(workDir, 'output.pdf');
+    let command = '';
+    if (mainFile.endsWith('.Rmd')) command = `Rscript -e "rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
+    else if (mainFile.endsWith('.typ')) command = `typst compile "${mainFile}" "output.pdf"`;
+    else command = `latexmk -pdf -interaction=nonstopmode -f "${mainFile}"`;
+
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: workDir, timeout: 120000 }, (error, stdout, stderr) => {
+            if (fs.existsSync(finalPdf)) resolve({ pdfPath: finalPdf, logs: stdout + stderr });
+            else reject({ error: 'Failed', logs: stdout + stderr });
+        });
+    });
+};
+
+app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
+  const project = await Project.findOne({ _id: req.params.id, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
+  const documents = await Document.find({ project: project?._id, isFolder: false });
+  const { currentContent, currentFileId } = req.body;
+  const activeDoc = documents.find(d => d._id.toString() === currentFileId);
+  const isR = activeDoc?.name.match(/\.[Rr]$/);
+
+  if (isR) {
+      const userId = req.user._id.toString();
+      const session = getRSession(userId);
+      const workDir = `/tmp/lw_r_work_${userId}`;
+      if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+      for (const doc of documents) {
+          const fullPath = path.join(workDir, doc.path, doc.name);
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          let content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+          if (doc.isLink && doc.linkedDocument) {
+              const target: any = await Document.findById(doc.linkedDocument).lean();
+              if (target) content = target.content;
+          }
+          fs.writeFileSync(fullPath, content || '');
+      }
+
+      fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
+      session.output = '';
+      const sentinel = `SENTINEL_DONE_${Date.now()}`;
+      const userScriptPath = `/tmp/lw_user_${userId}.R`;
+      fs.writeFileSync(userScriptPath, currentContent || '');
+
+      const wrappedCode = `
+        setwd("${workDir}")
+        options(warn=-1, prompt="> ", continue="+ ")
+        tryCatch({ source("${userScriptPath}", echo=TRUE, spaced=FALSE, print.eval=TRUE) }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+        while(dev.cur() > 1) dev.off()
+        cat("${sentinel}\\n")
+        suppressMessages(library(jsonlite, quietly=TRUE))
+        var_list <- list(); all_objs <- ls(all.names=FALSE, envir = .GlobalEnv)
+        for (v in all_objs) {
+          if (v %in% c("var_list", "all_objs", "v", "val") || grepl("^\\\\.lw_", v)) next
+          val <- get(v, envir = .GlobalEnv)
+          if (!is.function(val) && !is.environment(val)) var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
+        }
+        write_json(var_list, "/tmp/lw_vars_${userId}.json")
+      `;
+      session.process.stdin.write(`source(text=${JSON.stringify(wrappedCode)}, echo=FALSE)\n`);
+
+      let checkCount = 0;
+      const waitForDone = setInterval(() => {
+          if (session.output.includes(sentinel) || ++checkCount > 250) {
+              clearInterval(waitForDone);
+              let out = session.output.split(sentinel)[0];
+              const lines = out.split('\n').filter(l => !l.includes('lw_') && !l.startsWith('> source(') && !l.startsWith('> setwd('));
+              const varFile = `/tmp/lw_vars_${userId}.json`;
+              let variables = {};
+              if (fs.existsSync(varFile)) { try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); fs.unlinkSync(varFile); } catch(e) {} }
+              const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).sort();
+              const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
+              plotFiles.forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
+              res.json({ stdout: lines.join('\n').trim(), plots, variables });
+          }
+      }, 100);
+      return;
+  }
+  try {
+      const result: any = await compileProject(project, documents, req.body);
+      res.sendFile(result.pdfPath);
+  } catch (err: any) { res.status(500).json(err); }
+});
+
 io.on('connection', (socket) => {
   socket.on('join-document', (documentId) => socket.join(documentId));
   socket.on('edit-document', async ({ documentId, content }) => {
@@ -174,4 +275,4 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => console.log(`🚀 Workshop Backend running on port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`🚀 Docs Backend running on port ${PORT}`));
