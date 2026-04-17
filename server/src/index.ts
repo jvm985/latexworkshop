@@ -118,6 +118,7 @@ app.get('/api/projects', authenticate, async (req: any, res) => {
     }).populate('owner', 'name email');
     
     console.log('Query result count:', projects.length);
+    console.log('Project names:', projects.map(p => p.name).join(', '));
     
     if (projects.length === 0) {
         console.log('No projects found by ID, trying by email backup...');
