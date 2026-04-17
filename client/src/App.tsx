@@ -10,10 +10,17 @@ const API_URL = '/api';
 function Login() {
   const navigate = useNavigate();
   const handleLogin = async (res: any) => {
-    const { data } = await axios.post(`${API_URL}/auth/google`, { credential: res.credential });
-    localStorage.setItem('latex_token', data.token);
-    localStorage.setItem('latex_user', JSON.stringify(data.user));
-    navigate('/');
+    console.log('Google login success, sending to backend...');
+    try {
+        const { data } = await axios.post(`${API_URL}/auth/google`, { credential: res.credential });
+        console.log('Backend auth success:', data.user.email);
+        localStorage.setItem('latex_token', data.token);
+        localStorage.setItem('latex_user', JSON.stringify(data.user));
+        navigate('/');
+    } catch (e: any) {
+        console.error('Backend auth failed:', e.response?.data || e.message);
+        alert('Inloggen mislukt. Zie console voor details.');
+    }
   };
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f' }}>
