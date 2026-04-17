@@ -5,7 +5,6 @@ import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
-  FolderPlus, 
   X, 
   ChevronDown, ChevronRight,
   LogOut, Loader, 
