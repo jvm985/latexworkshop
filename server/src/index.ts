@@ -308,7 +308,7 @@ app.get('/api/test-system', async (req, res) => {
             const session = getRSession("test_user");
             const sentinel = `TEST_DONE_${Date.now()}`;
             let output = '';
-            const handler = (data) => {
+            const handler = (data: Buffer) => {
                 output += data.toString();
                 if (output.includes(sentinel)) {
                     session.process.stdout.off('data', handler);
