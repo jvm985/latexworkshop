@@ -8,11 +8,14 @@ import {
   X, 
   ChevronDown, ChevronRight,
   LogOut, Loader, 
-  Eraser, Database, Link, FilePlus
+  Eraser, Database, Link, FilePlus, Copy, Trash2, 
+  MoreVertical, Edit3, FolderPlus, Folder, Upload, ImageIcon, FileCode, CheckCircle2, Download,
+  Share2, Settings, Zap, Layers, List, ScrollText, Check, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon, Eye, UserPlus, User as UserIcon
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
@@ -73,6 +76,15 @@ export default function EditorView() {
   const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
   
   const [compiling, setCompiling] = useState(false);
+  const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('success');
+  const [logs, setLogs] = useState<string | null>(null);
+  const [showErrorView, setShowErrorView] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  const [showShare, setShowShare] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [sharePerm, setSharePerm] = useState('read');
+  const [showSettings, setShowSettings] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
   const [browsingProject, setBrowsingProject] = useState<any>(null);
@@ -80,7 +92,12 @@ export default function EditorView() {
   const [linkTargetDoc, setLinkTargetDoc] = useState<any>(null);
   
   const [leftWidth, setLeftWidth] = useState(240);
+  const [editorWidth, setEditorWidth] = useState(50);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
+  
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
+  const [activeItemMenu, setActiveItemMenu] = useState<string | null>(null);
+  const [dragOverNode, setDragOverNode] = useState<string | null>(null);
   
   const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
@@ -90,6 +107,7 @@ export default function EditorView() {
   const [outputHeight, setOutputHeight] = useState(150);
   
   const isResizingSidebarRef = useRef(false);
+  const isResizingRef = useRef(false);
   const isResizingOutputRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const editorRef = useRef<any>(null);
@@ -98,6 +116,7 @@ export default function EditorView() {
   
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
+  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -149,7 +168,11 @@ export default function EditorView() {
           setPdfUrl(window.URL.createObjectURL(blob));
           setRResult(null);
       }
+      setLastStatus('success');
+      setShowErrorView(false);
     } catch (err: any) {
+      setLastStatus('error');
+      setShowErrorView(true);
     } finally { setCompiling(false); }
   };
 
@@ -177,18 +200,13 @@ export default function EditorView() {
       }
       
       let fullDoc = item;
-      // Lazy load content if not already present
       if (!item.isFolder && !item.isBinary && (item.content === undefined || item.content === "")) {
           try {
               const res = await axios.get(`${API_URL}/projects/${id}/files/${item._id}`, { headers: { Authorization: `Bearer ${token}` } });
               fullDoc = res.data;
-              // Update the document list with the content so we don't have to fetch it again
               setDocuments(prev => prev.map(d => d._id === item._id ? fullDoc : d));
-          } catch (e) {
-              console.error('Failed to lazy load document content');
-          }
+          } catch (e) { console.error('Lazy load failed'); }
       }
-
       setActiveDoc(fullDoc);
       activeDocIdRef.current = fullDoc._id;
   };
@@ -217,6 +235,41 @@ export default function EditorView() {
     fetchAll();
   };
 
+  const deleteFile = async (docId: string) => {
+    if (!confirm('Delete item?')) return;
+    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (activeDoc?._id === docId) setActiveDoc(null);
+    fetchAll();
+  };
+
+  const renameFile = async (doc: any) => {
+      const newName = prompt('Enter new name:', doc.name);
+      if (!newName || newName === doc.name) return;
+      await axios.patch(`${API_URL}/projects/${id}/files/${doc._id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
+  const copyFile = async (doc: any) => {
+      const newName = prompt('New name:', doc.name + ' (copy)'); if (!newName) return;
+      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
+  const moveFile = async (docId: string, newPath: string) => {
+      await axios.patch(`${API_URL}/projects/${id}/files/${docId}`, { path: newPath }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
+  const setAsMain = async (fileId: string) => {
+      await axios.post(`${API_URL}/projects/${id}/files/${fileId}/main`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
+  const updateProject = async (updates: any) => {
+      const res = await axios.patch(`${API_URL}/projects/${id}`, updates, { headers: { Authorization: `Bearer ${token}` } });
+      setProject(res.data);
+  };
+
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
     documents.forEach(doc => {
@@ -236,19 +289,50 @@ export default function EditorView() {
     return root;
   };
 
+  const onDragStart = (e: React.DragEvent, doc: any) => { if (doc) e.dataTransfer.setData('docId', doc._id); };
+  const onDrop = (e: React.DragEvent, targetNode: any) => {
+      e.preventDefault(); setDragOverNode(null);
+      const docId = e.dataTransfer.getData('docId');
+      let newPath = targetNode._isFolder ? ((targetNode._path || "") + (targetNode._name ? targetNode._name + "/" : "")) : (targetNode.isFolder ? (targetNode.path + targetNode.name + "/") : targetNode.path);
+      if (docId) moveFile(docId, newPath);
+  };
+
   const renderNode = (node: any, path: string, depth: number) => {
-    const keys = Object.keys(node._children || {}).sort();
+    const keys = Object.keys(node._children || {}).sort((a, b) => {
+        const itemA = node._children[a]; const itemB = node._children[b];
+        if (!!itemA._isFolder && !itemB._isFolder) return -1;
+        if (!itemA._isFolder && !!itemB._isFolder) return 1;
+        return a.localeCompare(b);
+    });
     return keys.map(key => {
-      const item = node._children[key]; const isFolder = !!item._isFolder;
+      const item = node._children[key]; const isFolderNode = !!item._isFolder;
       const folderPath = `${path}${key}/`; const isExpanded = expandedFolders[folderPath];
-      const doc = isFolder ? item._doc : item;
+      const doc = isFolderNode ? item._doc : item;
+      const itemId = doc?._id || folderPath;
       return (
-        <div key={folderPath}>
-          <div onClick={() => switchDoc(item, folderPath)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
-            {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : <FileText size={14} color="#519aba"/>}
-            <span style={{ fontStyle: doc?.isLink ? 'italic' : 'normal' }}>{key}</span>
+        <div key={itemId} onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} onDragLeave={() => setDragOverNode(null)} onDrop={(e) => onDrop(e, item)} style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}>
+          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} draggable={!!doc} onDragStart={(e) => onDragStart(e, doc)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
+                {isFolderNode ? <Folder size={14} style={{ color: '#dcb67a' }}/> : (doc?.isBinary ? <ImageIcon size={14} color="#dcb67a"/> : <FileText size={14} color="#519aba"/>)}
+                <span style={{ fontStyle: doc?.isLink ? 'italic' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{key}</span>
+                {doc?.isMain && <CheckCircle2 size={12} color="#4ade80"/>}
+            </div>
+            <div style={{ position: 'relative' }}>
+                <button onClick={(e) => { e.stopPropagation(); setActiveItemMenu(activeItemMenu === itemId ? null : itemId); }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><MoreVertical size={14}/></button>
+                {activeItemMenu === itemId && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, background: '#252526', border: '1px solid #444', borderRadius: '6px', zIndex: 200, width: '140px', padding: '4px', boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>
+                        <button onClick={(e) => { e.stopPropagation(); if (doc) renameFile(doc); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Edit3 size={12}/> Rename</button>
+                        {doc && !doc.isFolder && <a href={`${API_URL}/projects/${id}/files/${doc._id}/raw`} download={doc.name} onClick={(e) => e.stopPropagation()} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}><Download size={12}/> Download</a>}
+                        <button onClick={(e) => { e.stopPropagation(); if (doc) deleteFile(doc._id); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><Trash2 size={12}/> Delete</button>
+                        <div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>
+                        <button onClick={(e) => { e.stopPropagation(); addFile(false, doc || item); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><FilePlus size={12}/> New File</button>
+                        <button onClick={(e) => { e.stopPropagation(); addFile(true, doc || item); setActiveItemMenu(null); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}><FolderPlus size={12}/> New Folder</button>
+                    </div>
+                )}
+            </div>
           </div>
-          {isFolder && isExpanded && renderNode(item, folderPath, depth + 1)}
+          {isFolderNode && isExpanded && renderNode(item, folderPath, depth + 1)}
         </div>
       );
     });
@@ -257,20 +341,24 @@ export default function EditorView() {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingSidebarRef.current) setLeftWidth(Math.max(150, Math.min(500, e.clientX)));
+      if (isResizingRef.current) {
+        const offset = leftWidth + 4; const percentage = ((e.clientX - offset) / (window.innerWidth - offset)) * 100;
+        setEditorWidth(Math.max(10, Math.min(90, percentage)));
+      }
       if (isResizingOutputRef.current) {
           const rect = document.getElementById('results-container')?.getBoundingClientRect();
           if (rect) setOutputHeight(Math.max(50, Math.min(rect.height - 50, e.clientY - rect.top)));
       }
     };
-    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; };
+    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingRef.current = false; isResizingOutputRef.current = false; setContextMenu(null); };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-  }, []);
+  }, [leftWidth]);
 
   if (!project) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => setActiveItemMenu(null)}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
@@ -290,14 +378,15 @@ export default function EditorView() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={async () => { const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }); setAvailableProjects(res.data.filter((p:any)=>p._id!==id)); setShowLinkModal(true); }} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><Link size={14}/></button>
               <button onClick={() => addFile(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FilePlus size={14}/></button>
+              <button onClick={() => addFile(true)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FolderPlus size={14}/></button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
         </aside>
-        <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent' }}></div>
+        <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent', zIndex: 50 }}></div>
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
+            <div style={{ width: `${editorWidth}%`, height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
                     <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
@@ -305,9 +394,10 @@ export default function EditorView() {
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
                         <Editor height="100%" language={activeDoc.name.endsWith('.tex') ? 'latex' : (activeDoc.name.endsWith('.md') ? 'markdown' : (activeDoc.name.match(/\.[Rr]$/) ? 'r' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false } }} />
-                    ) : null}
+                    ) : (activeDoc?.isBinary ? <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Binary File: {activeDoc.name}</div> : null)}
                 </div>
             </div>
+            <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
 
             <div style={{ flex: 1, background: '#2d2d2d', display: 'flex', flexDirection: 'column' }}>
                 <div id="results-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -326,7 +416,7 @@ export default function EditorView() {
                                 </pre>
                             </div>
                         </div>
-                        <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111' }}></div>
+                        <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111', zIndex: 50 }}></div>
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                             <div style={{ background: '#252526', display: 'flex', borderBottom: '1px solid #333' }}>
                                 {['plots', 'variables'].map(tab => (<button key={tab} onClick={() => setActiveTab(tab as any)} style={{ padding: '8px 16px', background: activeTab === tab ? '#1e1e1e' : 'transparent', color: activeTab === tab ? '#0071e3' : '#666', border: 'none', borderBottom: activeTab === tab ? '2px solid #0071e3' : 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{tab.toUpperCase()}</button>))}
@@ -392,6 +482,8 @@ export default function EditorView() {
               </div>
           </div>
       )}
+
+      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) renameFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Rename</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', cursor: 'pointer' }}>Set Main</button>}</div>}
     </div>
   );
 }
