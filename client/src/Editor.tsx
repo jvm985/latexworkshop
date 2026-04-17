@@ -193,23 +193,17 @@ export default function EditorView() {
           } else {
               const position = editorRef.current.getPosition();
               contentToRun = model.getLineContent(position.lineNumber);
-              // Move cursor to next line
               const lineCount = model.getLineCount();
               if (position.lineNumber < lineCount) {
                   editorRef.current.setPosition({ lineNumber: position.lineNumber + 1, column: 1 });
                   editorRef.current.revealLine(position.lineNumber + 1);
               }
-              editorRef.current.focus();
           }
+          editorRef.current.focus();
           if (!contentToRun.trim()) {
               setCompiling(false);
               return;
           }
-          // Echo the command to console
-          setRResult((prev: any) => ({
-              ...prev,
-              stdout: (prev?.stdout || '') + (prev?.stdout?.endsWith('\n') || !prev?.stdout ? '' : '\n') + '> ' + contentToRun + '\n'
-          }));
       }
 
       const res = await axios.post(`${API_URL}/compile/${id}`, {
@@ -251,18 +245,14 @@ export default function EditorView() {
     } catch (err: any) {
       setLastStatus('error');
       if (!isAutoMode) setShowErrorView(true);
-      
       const processErrorData = (data: any) => {
         try {
           const result = typeof data === 'string' ? JSON.parse(data) : data;
           const rawLogs = result.logs || result.error || (typeof result === 'string' ? result : 'Compilation failed.');
           setLogs(rawLogs);
           setParsedErrors(parseLogErrors(rawLogs, pType as any));
-        } catch(e) { 
-          setLogs(typeof data === 'string' ? data : 'Compilation error.'); 
-        }
+        } catch(e) { setLogs(typeof data === 'string' ? data : 'Compilation error.'); }
       };
-
       if (err.response?.data instanceof Blob) {
         const reader = new FileReader();
         reader.onload = () => processErrorData(reader.result);
@@ -406,7 +396,6 @@ export default function EditorView() {
   const createLink = async (targetProjectId: string, targetDoc: any) => {
       const parent = contextMenu?.doc?.isFolder ? contextMenu.doc : null;
       const targetPath = parent ? (parent.path + parent.name + '/') : '/';
-
       try {
           await axios.post(`${API_URL}/projects/${id}/links`, {
               targetProjectId,
@@ -418,9 +407,7 @@ export default function EditorView() {
           setBrowsingProject(null);
           setBrowsingDocs([]);
           fetchAll();
-      } catch (e: any) {
-          alert(e.response?.data || 'Failed to create link.');
-      }
+      } catch (e: any) { alert(e.response?.data || 'Failed to create link.'); }
   };
 
   const addFile = async (isFolder: boolean, parent?: any) => {
@@ -441,9 +428,7 @@ export default function EditorView() {
       const base = targetDoc || activeDoc;
       if (base && base.isFolder) basePath = base.path + base.name + "/";
       else if (base && base.path) basePath = base.path;
-      
       const textExtensions = ['.tex', '.typ', '.md', '.R', '.r', '.Rmd', '.txt', '.bib', '.cls', '.sty', '.json', '.css', '.js', '.ts', '.html'];
-
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
           const relativePath = (file as any).webkitRelativePath || "";
@@ -454,29 +439,18 @@ export default function EditorView() {
               name = parts.pop()!;
               finalPath = basePath + parts.join('/') + (parts.length > 0 ? "/" : "");
           }
-          
           const isBinary = !textExtensions.some(ext => name.toLowerCase().endsWith(ext));
           const reader = new FileReader();
-          
           reader.onload = () => {
               if (isBinary) {
                   const base64 = (reader.result as string).split(',')[1];
-                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: true, path: finalPath, binaryData: base64 }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
-                      if (i === files.length - 1) fetchAll();
-                  });
+                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: true, path: finalPath, binaryData: base64 }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { if (i === files.length - 1) fetchAll(); });
               } else {
                   const content = reader.result as string;
-                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: false, path: finalPath, content }, { headers: { Authorization: `Bearer ${token}` } }).then(() => {
-                      if (i === files.length - 1) fetchAll();
-                  });
+                  axios.post(`${API_URL}/projects/${id}/files`, { name, isFolder: false, isBinary: false, path: finalPath, content }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { if (i === files.length - 1) fetchAll(); });
               }
           };
-
-          if (isBinary) {
-              reader.readAsDataURL(file);
-          } else {
-              reader.readAsText(file);
-          }
+          if (isBinary) reader.readAsDataURL(file); else reader.readAsText(file);
       }
   };
 
@@ -650,7 +624,6 @@ export default function EditorView() {
           <button onClick={logout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4 }} title="Logout"><LogOut size={18}/></button>
         </div>
       </nav>
-
       <main style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
         <aside style={{ width: `${leftWidth}px`, background: '#181818', borderRight: '1px solid #282828', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -671,7 +644,6 @@ export default function EditorView() {
           <div style={{ flex: 1, overflowY: 'auto' }}>{renderNode(buildTree(), '/', 0)}</div>
         </aside>
         <div onMouseDown={() => isResizingSidebarRef.current = true} style={{ width: '4px', cursor: 'col-resize', background: 'transparent', zIndex: 50 }}></div>
-        
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: `${editorWidth}%`, height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -688,26 +660,15 @@ export default function EditorView() {
                             {showCompileOptions && (
                                 <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '200px', padding: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
                                     <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, padding: '4px 8px', textTransform: 'uppercase' }}>Mode</div>
-                                    <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
-                                        {compileMode === 'normal' ? <CheckCircle2 size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode
-                                    </button>
-                                    <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
-                                        {compileMode === 'draft' ? <CheckCircle2 size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode
-                                    </button>
-                                    
+                                    <button onClick={() => { setCompileMode('normal'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'normal' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>{compileMode === 'normal' ? <CheckCircle2 size={14} color="#4ade80"/> : <Layers size={14}/>} Normal Mode</button>
+                                    <button onClick={() => { setCompileMode('draft'); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: compileMode === 'draft' ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>{compileMode === 'draft' ? <CheckCircle2 size={14} color="#4ade80"/> : <Zap size={14}/>} Draft Mode</button>
                                     <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
                                     <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, padding: '4px 8px', textTransform: 'uppercase' }}>Compiler</div>
                                     {['pdflatex', 'xelatex', 'lualatex'].map(c => (
-                                        <button key={c} onClick={() => { updateProject({ compiler: c }); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: project?.compiler === c ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>
-                                            {project?.compiler === c ? <CheckCircle2 size={14} color="#0071e3"/> : <div style={{ width: 14 }}/>} {c}
-                                        </button>
+                                        <button key={c} onClick={() => { updateProject({ compiler: c }); setShowCompileOptions(false); }} style={{ width: '100%', textAlign: 'left', background: project?.compiler === c ? '#333' : 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', borderRadius: '4px' }}>{project?.compiler === c ? <CheckCircle2 size={14} color="#0071e3"/> : <div style={{ width: 14 }}/>} {c}</button>
                                     ))}
-
                                     <div style={{ borderTop: '1px solid #333', margin: '8px 0' }}></div>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }}>
-                                        <input type="checkbox" checked={usePreamble} onChange={(e) => setUsePreamble(e.target.checked)} />
-                                        Use Precompiled Preamble
-                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer', fontSize: '12px', color: '#ccc' }}><input type="checkbox" checked={usePreamble} onChange={(e) => setUsePreamble(e.target.checked)} /> Use Precompiled Preamble</label>
                                 </div>
                             )}
                         </div>
@@ -729,27 +690,15 @@ export default function EditorView() {
                     <div style={{ display: 'flex', gap: '8px' }}>
                         {!rResult && (
                             <>
-                            <ZoomOut>
-                                {({ onClick }: RenderZoomOutProps) => (
-                                    <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>
-                                )}
-                            </ZoomOut>
-                            <ZoomIn>
-                                {({ onClick }: RenderZoomInProps) => (
-                                    <button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>
-                                )}
-                            </ZoomIn>
+                            <ZoomOut>{({ onClick }: RenderZoomOutProps) => (<button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom Out"><ZoomOutIcon size={14}/></button>)}</ZoomOut>
+                            <ZoomIn>{({ onClick }: RenderZoomInProps) => (<button onClick={onClick} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px', borderRadius: '4px', cursor: 'pointer' }} title="Zoom In"><ZoomInIcon size={14}/></button>)}</ZoomIn>
                             </>
                         )}
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
                         {!rResult && (
                             <>
-                            {logs && (
-                                <button onClick={() => { navigator.clipboard.writeText(logs); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    {copied ? <Check size={14} color="#4ade80"/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy Logs'}
-                                </button>
-                            )}
+                            {logs && (<button onClick={() => { navigator.clipboard.writeText(logs); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{copied ? <Check size={14} color="#4ade80"/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy Logs'}</button>)}
                             <button onClick={() => { setLogView(logView === 'ordered' ? 'raw' : 'ordered'); setShowErrorView(true); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>{logView === 'ordered' ? <ScrollText size={14}/> : <List size={14}/>} {logView === 'ordered' ? 'Raw Logs' : 'Clean Errors'}</button>
                             <button onClick={() => setShowErrorView(!showErrorView)} style={{ background: showErrorView ? '#0071e3' : '#333', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>{showErrorView ? 'Show PDF' : 'Show Logs'}</button>
                             {pdfUrl && <a href={pdfUrl} download={`${project?.name}.pdf`} style={{ background: '#333', color: '#ccc', padding: '4px', borderRadius: '4px' }}><Download size={14}/></a>}
@@ -760,7 +709,6 @@ export default function EditorView() {
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                     {rResult ? (
                         <div id="results-container" style={{ flex: 1, background: '#1e1e1e', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                            {/* TOP: Output / Console */}
                             <div style={{ height: `${outputHeight}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                 <div style={{ background: '#252526', padding: '4px 12px', fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #333' }}>
                                     <span>Console Output</span>
@@ -770,11 +718,7 @@ export default function EditorView() {
                                     <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#4ade80', fontSize: '13px', fontFamily: 'monospace' }}>{rResult.stdout || 'No output.'}</pre>
                                 </div>
                             </div>
-
-                            {/* MIDDLE: Sub-resizer */}
                             <div onMouseDown={() => isResizingOutputRef.current = true} style={{ height: '6px', cursor: 'ns-resize', background: '#111', zIndex: 50 }}></div>
-
-                            {/* BOTTOM: Tabs (Plots / Variables) */}
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                 <div style={{ background: '#252526', display: 'flex', borderBottom: '1px solid #333' }}>
                                     {['plots', 'variables'].map(tab => (
@@ -805,9 +749,7 @@ export default function EditorView() {
                                                         <Database size={12}/>{name} <span style={{ fontWeight: 400, color: '#666', fontSize: '10px' }}>({info.type})</span>
                                                     </div>
                                                     {expandedVars.has(name) && info.summary && (
-                                                        <pre style={{ margin: '4px 0 0 18px', fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap', fontFamily: 'monospace', background: '#111', padding: '6px', borderRadius: '4px', borderLeft: '2px solid #0071e3' }}>
-                                                            {info.summary}
-                                                        </pre>
+                                                        <pre style={{ margin: '4px 0 0 18px', fontSize: '11px', color: '#aaa', whiteSpace: 'pre-wrap', fontFamily: 'monospace', background: '#111', padding: '6px', borderRadius: '4px', borderLeft: '2px solid #0071e3' }}>{info.summary}</pre>
                                                     )}
                                                 </div>
                                             ))}
@@ -845,19 +787,13 @@ export default function EditorView() {
                                         <div style={{ height: '100%', width: '100%', background: '#323639', padding: '20px', overflow: 'auto' }}>
                                             <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>
                                                 <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
-                                                    <Viewer 
-                                                        fileUrl={pdfUrl} 
-                                                        plugins={[zoomPluginInstance]}
-                                                        onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }}
-                                                        defaultScale={SpecialZoomLevel.PageWidth}
-                                                    />
+                                                    <Viewer fileUrl={pdfUrl} plugins={[zoomPluginInstance]} onDocumentLoad={(e) => { viewerInstanceRef.current = e.doc; }} defaultScale={SpecialZoomLevel.PageWidth} />
                                                 </div>
                                             </Worker>
                                         </div>
                                     ) : !compiling && !logs && (
                                         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444' }}>
-                                            <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/>
-                                            <span>PDF Loading...</span>
+                                            <Eye size={48} style={{ opacity: 0.1, marginBottom: '10px' }}/><span>PDF Loading...</span>
                                         </div>
                                     )}
                                 </div>
@@ -868,59 +804,11 @@ export default function EditorView() {
             </div>
         </div>
       </main>
-
       {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Copy size={14}/> Copy</button><div style={{ borderTop: '1px solid #333', margin: '4px 0' }}></div>{!contextMenu.doc.isMain && !contextMenu.doc.isBinary && !contextMenu.doc.isFolder && <button onClick={() => setAsMain(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#4ade80', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><CheckCircle2 size={14}/> Set Main</button>}<button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}><Trash2 size={14}/> Delete</button></div>}
-      
       {showSettings && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '400px', borderRadius: '12px', border: '1px solid #333', padding: '24px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}><h2 style={{ margin: 0, fontSize: '18px' }}>Project Settings</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowSettings(false)}/></div><div style={{ marginBottom: '20px' }}><label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>Default Compiler (for LaTeX)</label><select value={project?.compiler} onChange={(e) => updateProject({ compiler: e.target.value })} style={{ width: '100%', background: '#333', color: 'white', border: '1px solid #444', padding: '8px', borderRadius: '4px' }}><option value="pdflatex">pdfLaTeX</option><option value="xelatex">XeLaTeX</option><option value="lualatex">LuaLaTeX</option><option value="typst">Typst</option><option value="pandoc">Pandoc (Markdown)</option></select><div style={{ marginTop: '12px', fontSize: '11px', color: '#666', lineHeight: '1.5' }}>Tip: specify main LaTeX file with:<br/><code>% !TEX root = main.tex</code></div></div><button onClick={() => setShowSettings(false)} style={{ width: '100%', background: '#0071e3', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600 }}>Save</button></div></div>}
-      
       {showShare && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '450px', borderRadius: '16px', border: '1px solid #333', padding: '32px' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus color="#0071e3"/> Share Project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowShare(false)}/></div><div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}><input value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="Email address..." style={{ flex: 1, background: '#1e1e1e', border: '1px solid #333', padding: '10px', borderRadius: '8px', outline: 'none' }}/><select value={sharePerm} onChange={e => setSharePerm(e.target.value)} style={{ background: '#333', border: 'none', padding: '10px', borderRadius: '8px' }}><option value="read">Read</option><option value="write">Write</option></select><button onClick={() => { axios.post(`${API_URL}/projects/${id}/share`, { email: shareEmail, permission: sharePerm }, { headers: { Authorization: `Bearer ${token}` } }).then(() => { setShareEmail(''); fetchAll(); }); }} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '10px 20px', borderRadius: '8px', fontWeight: 600 }}>Invite</button></div><div style={{ borderTop: '1px solid #333', paddingTop: '20px' }}><span style={{ fontSize: '12px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Access</span><div style={{ marginTop: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#0071e3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16} color="white"/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px', fontWeight: 600 }}>{project?.owner?.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Owner</div></div></div>{project?.sharedWith?.map((s: any) => (<div key={s.email} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}><div style={{ width: '32px', height: '32px', borderRadius: '16px', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><UserIcon size={16}/></div><div style={{ flex: 1 }}><div style={{ fontSize: '14px' }}>{s.email}</div><div style={{ fontSize: '12px', color: '#666' }}>Can {s.permission === 'read' ? 'read' : 'write'}</div></div></div>))}</div></div></div></div>}
-
       {showLinkModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: '#252526', width: '600px', height: '500px', borderRadius: '16px', border: '1px solid #333', padding: '32px', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                      <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><Link color="#0071e3"/> Link from other project</h2>
-                      <X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowLinkModal(false)}/>
-                  </div>
-                  
-                  <div style={{ flex: 1, display: 'flex', gap: '20px', minHeight: 0 }}>
-                      <div style={{ flex: 1, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}>
-                          <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Projects</div>
-                          {availableProjects.map(p => (
-                              <div key={p._id} onClick={async () => {
-                                  const res = await axios.get(`${API_URL}/projects/${p._id}`, { headers: { Authorization: `Bearer ${token}` } });
-                                  setBrowsingProject(p);
-                                  setBrowsingDocs(res.data.documents);
-                              }} style={{ padding: '8px', cursor: 'pointer', borderRadius: '4px', background: browsingProject?._id === p._id ? '#0071e3' : 'transparent', fontSize: '13px' }}>
-                                  {p.name}
-                              </div>
-                          ))}
-                      </div>
-                      <div style={{ flex: 2, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}>
-                          <div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Files & Folders</div>
-                          {browsingDocs.map(d => (
-                              <div key={d._id} onClick={() => setLinkTargetDoc(d)} style={{ padding: '6px 8px', cursor: 'pointer', borderRadius: '4px', background: linkTargetDoc?._id === d._id ? '#333' : 'transparent', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', color: d.isFolder ? '#dcb67a' : '#aaa' }}>
-                                  {d.isFolder ? <Folder size={14}/> : <FileText size={14}/>}
-                                  <span>{d.path}{d.name}</span>
-                              </div>
-                          ))}
-                          {!browsingProject && <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '12px' }}>Select a project first</div>}
-                      </div>
-                  </div>
-
-                  <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                      <button onClick={() => setShowLinkModal(false)} style={{ background: '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600 }}>Cancel</button>
-                      <button 
-                        disabled={!linkTargetDoc} 
-                        onClick={() => createLink(browsingProject._id, linkTargetDoc)}
-                        style={{ background: linkTargetDoc ? '#0071e3' : '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600, cursor: linkTargetDoc ? 'pointer' : 'default' }}
-                      >
-                        Link Item
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}><div style={{ background: '#252526', width: '600px', height: '500px', borderRadius: '16px', border: '1px solid #333', padding: '32px', display: 'flex', flexDirection: 'column' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}><h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}><Link color="#0071e3"/> Link from other project</h2><X style={{ cursor: 'pointer', color: '#666' }} onClick={() => setShowLinkModal(false)}/></div><div style={{ flex: 1, display: 'flex', gap: '20px', minHeight: 0 }}><div style={{ flex: 1, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}><div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Projects</div>{availableProjects.map(p => (<div key={p._id} onClick={async () => { const res = await axios.get(`${API_URL}/projects/${p._id}`, { headers: { Authorization: `Bearer ${token}` } }); setBrowsingProject(p); setBrowsingDocs(res.data.documents); }} style={{ padding: '8px', cursor: 'pointer', borderRadius: '4px', background: browsingProject?._id === p._id ? '#0071e3' : 'transparent', fontSize: '13px' }}>{p.name}</div>))}</div><div style={{ flex: 2, background: '#1e1e1e', borderRadius: '8px', padding: '12px', overflowY: 'auto' }}><div style={{ fontSize: '10px', color: '#666', fontWeight: 800, textTransform: 'uppercase', marginBottom: '12px' }}>Files & Folders</div>{browsingDocs.map(d => (<div key={d._id} onClick={() => setLinkTargetDoc(d)} style={{ padding: '6px 8px', cursor: 'pointer', borderRadius: '4px', background: linkTargetDoc?._id === d._id ? '#333' : 'transparent', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', color: d.isFolder ? '#dcb67a' : '#aaa' }}>{d.isFolder ? <Folder size={14}/> : <FileText size={14}/>}<span>{d.path}{d.name}</span></div>))}{!browsingProject && <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '12px' }}>Select a project first</div>}</div></div><div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}><button onClick={() => setShowLinkModal(false)} style={{ background: '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600 }}>Cancel</button><button disabled={!linkTargetDoc} onClick={() => createLink(browsingProject._id, linkTargetDoc)} style={{ background: linkTargetDoc ? '#0071e3' : '#333', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: 600, cursor: linkTargetDoc ? 'pointer' : 'default' }}>Link Item</button></div></div></div>)}
     </div>
   );
 }
