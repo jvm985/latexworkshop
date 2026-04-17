@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight,
   LogOut, Loader, 
   Eraser, Database, Link, FilePlus, FolderPlus, Trash2, 
-  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download, Copy
+  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download, Copy, AlertCircle
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
@@ -72,8 +72,12 @@ export default function EditorView() {
   
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [rResult, setRResult] = useState<{ stdout: string, plots: string[], variables: any } | null>(null);
+  const [logs, setLogs] = useState<string | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
   
   const [compiling, setCompiling] = useState(false);
+  const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('none');
+  
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
   const [browsingProject, setBrowsingProject] = useState<any>(null);
@@ -127,6 +131,7 @@ export default function EditorView() {
   const compile = async () => {
     if (compiling) return;
     setCompiling(true);
+    setShowLogs(false);
     try {
       const currentDoc = activeDocIdRef.current ? documents.find(d => d._id === activeDocIdRef.current) : null;
       const isR = currentDoc?.name.match(/\.[Rr]$/);
@@ -154,8 +159,24 @@ export default function EditorView() {
           const blob = new Blob([res.data], { type: 'application/pdf' });
           setPdfUrl(window.URL.createObjectURL(blob));
           setRResult(null);
+          setLastStatus('success');
       }
     } catch (err: any) {
+        setLastStatus('error');
+        if (err.response?.data instanceof Blob) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const errorData = JSON.parse(reader.result as string);
+                    setLogs(errorData.logs || errorData.error || 'Onbekende fout');
+                    setShowLogs(true);
+                } catch(e) { setLogs('Fout bij compileren'); }
+            };
+            reader.readAsText(err.response.data);
+        } else if (err.response?.data) {
+            setLogs(err.response.data.logs || err.response.data.error || 'Compilatie mislukt');
+            setShowLogs(true);
+        }
     } finally { setCompiling(false); }
   };
 
@@ -167,7 +188,7 @@ export default function EditorView() {
     const handleKeyDown = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); compile(); } };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeDoc, compiling]);
+  }, [activeDoc, compiling, documents]);
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeDoc) return;
@@ -368,9 +389,15 @@ export default function EditorView() {
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: `${editorWidth}%`, height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
-                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
-                    <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
+                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: lastStatus === 'success' ? '#4ade80' : lastStatus === 'error' ? '#ff5f56' : 'transparent' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => setShowLogs(!showLogs)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Logs</button>
+                        <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
+                    </div>
                 </div>
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
@@ -382,7 +409,15 @@ export default function EditorView() {
 
             <div style={{ flex: 1, background: '#2d2d2d', display: 'flex', flexDirection: 'column' }}>
                 <div id="results-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    {rResult ? (
+                    {showLogs && logs ? (
+                         <div style={{ flex: 1, background: '#1e1e1e', padding: '24px', overflowY: 'auto' }}>
+                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                                 <h2 style={{ color: '#ff5f56', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '18px' }}><AlertCircle size={20}/> Compilatie Fout</h2>
+                                 <button onClick={() => setShowLogs(false)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer' }}>Sluiten</button>
+                             </div>
+                             <pre style={{ color: '#aaa', fontSize: '12px', whiteSpace: 'pre-wrap', fontFamily: 'monospace', background: '#000', padding: '15px', borderRadius: '8px' }}>{logs}</pre>
+                         </div>
+                    ) : rResult ? (
                         <>
                         <div style={{ height: `${outputHeight}px`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                             <div style={{ background: '#252526', padding: '4px 12px', fontSize: '10px', color: '#666', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
