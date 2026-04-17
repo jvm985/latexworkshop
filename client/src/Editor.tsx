@@ -9,14 +9,8 @@ import {
   X, 
   ChevronDown, ChevronRight,
   LogOut, Loader, 
-  Eraser, Database, Link, FilePlus
+  Eraser, Database, Link, FilePlus, Copy, Trash2
 } from 'lucide-react';
-
-import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { zoomPlugin } from '@react-pdf-viewer/zoom';
-import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
-import '@react-pdf-viewer/core/lib/styles/index.css';
-import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
 const API_URL = '/api';
 
@@ -56,8 +50,6 @@ export default function EditorView() {
   const consoleRef = useRef<HTMLDivElement>(null);
   
   const token = localStorage.getItem('latex_token');
-  const zoomPluginInstance = zoomPlugin();
-  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -163,6 +155,19 @@ export default function EditorView() {
     fetchAll();
   };
 
+  const deleteFile = async (docId: string) => {
+    if (!confirm('Delete item?')) return;
+    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (activeDoc?._id === docId) setActiveDoc(null);
+    fetchAll();
+  };
+
+  const copyFile = async (doc: any) => {
+      const newName = prompt('New name:', doc.name + ' (copy)'); if (!newName) return;
+      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchAll();
+  };
+
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
     documents.forEach(doc => {
@@ -190,7 +195,7 @@ export default function EditorView() {
       const doc = isFolder ? item._doc : item;
       return (
         <div key={folderPath}>
-          <div onClick={() => switchDoc(item, folderPath)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
+          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
             {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : <FileText size={14} color="#519aba"/>}
             <span style={{ fontStyle: doc?.isLink ? 'italic' : 'normal' }}>{key}</span>
           </div>
@@ -284,7 +289,7 @@ export default function EditorView() {
                                                 <span style={{ fontSize: '12px' }}>{currentPlotIndex + 1} / {rResult.plots.length}</span>
                                                 <button onClick={() => setCurrentPlotPlotIndex(Math.min(rResult.plots.length - 1, currentPlotIndex + 1))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px' }}><ChevronRight size={14}/></button>
                                             </div>
-                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} alt="Plot" />
+                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} />
                                             </>
                                         ) : 'No plots.'}
                                     </div>
@@ -336,7 +341,7 @@ export default function EditorView() {
           </div>
       )}
 
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button></div>}
+      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}><Copy size={14}/> Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}><Trash2 size={14}/> Delete</button></div>}
     </div>
   );
 }
