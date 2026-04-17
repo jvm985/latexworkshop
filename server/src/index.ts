@@ -63,7 +63,9 @@ const Document = mongoose.model('Document', documentSchema);
 
 // --- AUTH MIDDLEWARE ---
 const authenticate = async (req: any, res: any, next: any) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const authHeader = req.headers.authorization;
+  console.log('Auth check for path:', req.path, 'Has header:', !!authHeader);
+  const token = authHeader?.split(' ')[1];
   if (!token) return res.status(401).send('Unauthorized');
   try {
     const ticket = await client.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
@@ -73,7 +75,10 @@ const authenticate = async (req: any, res: any, next: any) => {
     if (!user) user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
     req.user = user;
     next();
-  } catch (err) { res.status(401).send('Invalid token'); }
+  } catch (err) { 
+    console.error('Auth check failed:', err);
+    res.status(401).send('Invalid token'); 
+  }
 };
 
 // --- ROUTES ---
