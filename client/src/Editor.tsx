@@ -8,7 +8,7 @@ import {
   X, 
   ChevronDown, ChevronRight,
   LogOut, Loader, 
-  Eraser, Database, Link, FilePlus, Copy, Trash2, 
+  Eraser, Database, Link, FilePlus, FolderPlus, Trash2, 
   MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download
 } from 'lucide-react';
 
