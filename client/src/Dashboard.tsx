@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  FileText, LogOut, Search, Clock, 
-  Trash2, ExternalLink, RefreshCw
+  FileText, ExternalLink, RefreshCw
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -12,7 +11,7 @@ export default function Dashboard() {
   console.log('Dashboard rendering...');
   try {
       const [projects, setProjects] = useState([]);
-      const [search, setSearch] = useState('');
+      const [search] = useState('');
       const [name, setName] = useState('');
       const [loading, setLoading] = useState(true);
       const navigate = useNavigate();
@@ -48,7 +47,7 @@ export default function Dashboard() {
         if (!name) return;
         try {
             await axios.post(`${API_URL}/projects`, { name, type: 'latex' }, { headers: { Authorization: `Bearer ${token}` } });
-            fetchAll(); // Wait, fetchAll? Should be fetchProjects or fetchAll from before.
+            fetchProjects();
         } catch (e) { alert('Creation failed'); }
       };
       
@@ -63,8 +62,8 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}><div style={{ fontSize: '13px', color: '#888' }}>{user?.email}</div><button onClick={() => { localStorage.clear(); navigate('/login'); }} style={{ background: '#222', border: '1px solid #333', color: '#aaa', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>Logout</button></div>
             </nav>
             <main style={{ flex: 1, padding: '40px 80px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px' }}>
-                    <h2>Projects</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+                    <h2 style={{ fontSize: '24px', fontWeight: 700 }}>Your Projects</h2>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <input value={name} onChange={e => setName(e.target.value)} placeholder="New project..." style={{ background: '#181818', border: '1px solid #333', color: 'white', padding: '8px 12px', borderRadius: '8px' }}/>
                         <button onClick={create} style={{ background: '#0071e3', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>Create</button>
