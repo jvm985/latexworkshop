@@ -182,22 +182,31 @@ app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
   res.send('Deleted');
 });
 
-const compileProject = async (project: any, documents: any[], body: any) => {
+const compileProject = async (project: any, user: any, body: any) => {
     const { currentContent, currentFileId, preferredMain } = body;
     const workDir = `/tmp/lw_proj_${project._id}`;
     if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+
+    // Haal de volledige documenten op (inclusief content en binaryData)
+    const documents = await Document.find({ project: project._id }).lean();
 
     let mainFile = '';
     for (const doc of documents) {
         if (doc.isFolder) continue;
         const fullPath = path.join(workDir, doc.path, doc.name);
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        
         let content = (currentFileId && doc._id.toString() === currentFileId) ? currentContent : doc.content;
+        let binaryData = doc.binaryData;
+
         if (doc.isLink && doc.linkedDocument) {
             const target: any = await Document.findById(doc.linkedDocument).lean();
-            if (target) content = target.content;
+            if (target) {
+                content = target.content;
+                binaryData = target.binaryData;
+            }
         }
-        fs.writeFileSync(fullPath, doc.isBinary && doc.binaryData ? doc.binaryData : (content || ''));
+        fs.writeFileSync(fullPath, doc.isBinary && binaryData ? binaryData : (content || ''));
         const relPath = path.join(doc.path, doc.name);
         if (preferredMain && doc.name === preferredMain) mainFile = relPath;
         if (doc.isMain && !mainFile) mainFile = relPath;
@@ -295,7 +304,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       return;
   }
   try {
-      const result: any = await compileProject(project, documents, req.body);
+      const result: any = await compileProject(project, req.user, req.body);
       res.sendFile(result.pdfPath);
   } catch (err: any) { res.status(500).json(err); }
 });
