@@ -6,11 +6,11 @@ import axios from 'axios';
 import { 
   Play, ChevronLeft, FileText, 
   FolderPlus, 
-  X, UserPlus, 
+  X, 
   ChevronDown, ChevronRight, Trash2, CheckCircle2,
-  Download, LogOut, Loader, Upload,
+  Download, LogOut, Loader,
   Copy, ImageIcon, 
-  List, ScrollText, Edit3, MoreVertical,
+  Edit3, MoreVertical,
   Eraser, Database, Link, FilePlus
 } from 'lucide-react';
 
@@ -56,7 +56,6 @@ export default function EditorView() {
   const editorRef = useRef<any>(null);
   const activeDocIdRef = useRef<string | null>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
