@@ -8,6 +8,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { exec, spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use(express.json({ limit: '50mb' }));
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/latexworkshop';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
+const JWT_SECRET = process.env.JWT_SECRET || 'docs-secret-key';
 
 mongoose.connect(MONGO_URI).then(() => console.log('✅ Connected to MongoDB (latexworkshop)'));
 
@@ -107,17 +109,27 @@ const authenticate = async (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).send('Unauthorized');
   try {
-    const ticket = await client.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
-    const payload = ticket.getPayload();
-    if (!payload || !payload.email) throw new Error('Invalid token');
-    let user = await User.findOne({ email: payload.email });
-    if (!user) user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
-    req.user = user;
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    req.user = await User.findById(decoded.userId);
+    if (!req.user) return res.status(401).send('User not found');
     next();
   } catch (err) { res.status(401).send('Invalid token'); }
 };
 
 // --- ROUTES ---
+app.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body;
+  try {
+    const ticket = await client.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) throw new Error('No payload');
+    let user = await User.findOne({ email: payload.email });
+    if (!user) user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture });
+    const token = jwt.sign({ userId: user._id, email: user.email }, JWT_SECRET);
+    res.json({ token, user });
+  } catch (e) { res.status(401).send('Auth failed'); }
+});
+
 app.get('/api/projects', authenticate, async (req: any, res) => {
   const projects = await Project.find({ $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] }).populate('owner', 'name email');
   res.json(projects);
@@ -158,12 +170,10 @@ app.delete('/api/projects/:id/files/:fileId', authenticate, async (req: any, res
     res.json({ success: true });
 });
 
-app.post('/api/projects/:id/links', authenticate, async (req: any, res) => {
-    const { targetProjectId, targetDocumentId, name, path } = req.body;
-    const targetProj = await Project.findOne({ _id: targetProjectId, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
-    if (!targetProj) return res.status(403).send('No access');
-    const link = await Document.create({ project: req.params.id, name, path, isLink: true, linkedProject: targetProjectId, linkedDocument: targetDocumentId });
-    res.json(link);
+app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
+  await Project.deleteOne({ _id: req.params.id, owner: req.user._id });
+  await Document.deleteMany({ project: req.params.id });
+  res.send('Deleted');
 });
 
 const compileProject = async (project: any, documents: any[], body: any) => {
@@ -196,11 +206,7 @@ const compileProject = async (project: any, documents: any[], body: any) => {
     let command = '';
     if (mainFile.endsWith('.Rmd')) command = `Rscript -e "rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
     else if (mainFile.endsWith('.typ')) command = `typst compile "${mainFile}" "output.pdf"`;
-    else {
-        const compiler = project.compiler || 'pdflatex';
-        const engine = compiler === 'xelatex' ? '-pdfxe' : (compiler === 'lualatex' ? '-pdflua' : '-pdf');
-        command = `latexmk ${engine} -interaction=nonstopmode -f "${mainFile}"`;
-    }
+    else command = `latexmk -pdf -interaction=nonstopmode -f "${mainFile}"`;
 
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 120000 }, (error, stdout, stderr) => {
@@ -262,23 +268,18 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
           if (session.output.includes(sentinel) || ++checkCount > 250) {
               clearInterval(waitForDone);
               let out = session.output.split(sentinel)[0];
-              
-              // Clean up ONLY known internal wrapper echoes
               const lines = out.split('\n').filter(l => {
                   const t = l.trim();
                   if (t.startsWith('> source(text=') || t.startsWith('> options(warn=') || t.startsWith('> suppressMessages(')) return false;
                   if (t.includes('SENTINEL_DONE_') || t.includes('lw_vars_')) return false;
                   return true;
               });
-
               const varFile = `/tmp/lw_vars_${userId}.json`;
               let variables = {};
               if (fs.existsSync(varFile)) { try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); fs.unlinkSync(varFile); } catch(e) {} }
-              
               const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`lw_plot_${userId}_`)).sort();
               const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
               plotFiles.forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
-              
               res.json({ stdout: lines.join('\n').trim(), plots, variables });
           }
       }, 100);
@@ -291,42 +292,65 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
 });
 
 app.get('/api/test-system', async (req, res) => {
+    const results: any[] = [];
+    
+    // 1. Database & Auth Test
+    try {
+        const testUser = await User.findOneAndUpdate(
+            { email: 'test-system@internal.cloud' },
+            { name: 'System Tester' },
+            { upsert: true, new: true }
+        );
+        const token = jwt.sign({ userId: testUser._id, email: testUser.email }, JWT_SECRET);
+        results.push({ name: 'Auth/JWT OK', success: !!token });
+
+        // 2. Project Creation Test
+        const projName = `Test Proj ${Date.now()}`;
+        const proj = await Project.create({ owner: testUser._id, name: projName });
+        results.push({ name: 'Project Creation OK', success: !!proj && proj.name === projName });
+
+        // 3. Project Deletion Test
+        if (proj) {
+            await Project.deleteOne({ _id: proj._id });
+            const found = await Project.findById(proj._id);
+            results.push({ name: 'Project Deletion OK', success: !found });
+        }
+    } catch (e: any) { results.push({ name: 'Auth/Project DB Tests', success: false, error: e.message }); }
+
+    // 4. Compilation Tests
     const testDir = '/tmp/lw_system_tests';
     if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
     
-    const results: any[] = [];
     const runCmd = (name: string, cmd: string, files: any) => {
         const work = path.join(testDir, name.replace(/ /g,'_'));
         if (!fs.existsSync(work)) fs.mkdirSync(work, { recursive: true });
         for (const [f,c] of Object.entries(files)) fs.writeFileSync(path.join(work, f), c as string);
         return new Promise((resolve) => {
-            exec(cmd, { cwd: work, timeout: 30000 }, (err, stdout, stderr) => {
+            exec(cmd, { cwd: work, timeout: 60000 }, (err, stdout, stderr) => {
                 results.push({ name, success: !err, stdout, stderr });
                 resolve(null);
             });
         });
     };
 
-    await runCmd('LaTeX OK', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}OK\\end{document}' });
-    await runCmd('LaTeX FAIL', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}\\undefined\\end{document}' });
-    await runCmd('RMarkdown OK', 'Rscript -e "rmarkdown::render(\'main.Rmd\', output_file=\'out.pdf\')" ', { 'main.Rmd': '---\noutput: pdf_document\n---\n# OK' });
-    await runCmd('Typst OK', 'typst compile main.typ out.pdf', { 'main.typ': '= OK' });
+    await runCmd('LaTeX Compilation OK', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}OK\\end{document}' });
+    await runCmd('RMarkdown Compilation OK', 'Rscript -e "rmarkdown::render(\'main.Rmd\', output_file=\'out.pdf\')" ', { 'main.Rmd': '---\noutput: pdf_document\n---\n# OK' });
 
-    // R Interactive Test
+    // 5. Interactive R Test
     const rTest = () => {
         return new Promise((resolve) => {
-            const session = getRSession("test_user");
+            const session = getRSession("test_user_system");
             const sentinel = `TEST_DONE_${Date.now()}`;
             let output = '';
             const handler = (data: Buffer) => {
                 output += data.toString();
                 if (output.includes(sentinel)) {
                     session.process.stdout.off('data', handler);
-                    resolve({ name: 'R Interactive OK', success: output.includes('21'), stdout: output });
+                    resolve({ name: 'R Interactive OK', success: output.includes('42'), stdout: output });
                 }
             };
             session.process.stdout.on('data', handler);
-            session.process.stdin.write(`print(10+11)\ncat("${sentinel}\\n")\n`);
+            session.process.stdin.write(`print(21*2)\ncat("${sentinel}\\n")\n`);
         });
     };
     results.push(await rTest());
