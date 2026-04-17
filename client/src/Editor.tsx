@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Editor from '@monaco-editor/react';
+import Editor, { loader } from '@monaco-editor/react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { 
@@ -12,7 +12,57 @@ import {
   Eraser, Database, Link, FilePlus, Copy, Trash2
 } from 'lucide-react';
 
+import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
+import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
+import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/zoom/lib/styles/index.css';
+
 const API_URL = '/api';
+
+// --- ADVANCED MONACO SETUP ---
+loader.init().then(monaco => {
+  monaco.languages.register({ id: 'latex' });
+  monaco.languages.setMonarchTokensProvider('latex', {
+    defaultToken: '',
+    tokenPostfix: '.latex',
+    tokenizer: {
+      root: [
+        [/\\(?:[a-zA-Z]+|.)/, 'keyword'],
+        [/\{/, { token: 'delimiter.curly', bracket: '@open' }],
+        [/\}/, { token: 'delimiter.curly', bracket: '@close' }],
+        [/\[/, { token: 'delimiter.square', bracket: '@open' }],
+        [/\]/, { token: 'delimiter.square', bracket: '@close' }],
+        [/%/, { token: 'comment', next: '@comment' }],
+        [/\$.*?\$/, 'variable'],
+        [/&/, 'operator'],
+        [/\\\\/, 'operator'],
+      ],
+      comment: [
+        [/[^%]+/, 'comment'],
+        [/$/, 'comment', '@pop'],
+      ],
+    }
+  });
+
+  monaco.languages.register({ id: 'typst' });
+  monaco.languages.setMonarchTokensProvider('typst', {
+    tokenizer: {
+      root: [
+        [/^#.*/, 'comment'],
+        [/^= .*/, 'keyword'],
+        [/\[/, { token: 'string', bracket: '@open', next: '@string' } as any],
+        [/\$.*\$/, 'variable'],
+        [/[{}()\[\]]/, '@brackets'],
+        [/[a-zA-Z_]\w*/, 'identifier'],
+      ],
+      string: [
+        [/[^\]]+/, 'string'],
+        [/\]/, { token: 'string', bracket: '@close', next: '@pop' } as any],
+      ],
+    }
+  });
+});
 
 export default function EditorView() {
   const { id } = useParams();
@@ -50,6 +100,8 @@ export default function EditorView() {
   const consoleRef = useRef<HTMLDivElement>(null);
   
   const token = localStorage.getItem('latex_token');
+  const zoomPluginInstance = zoomPlugin();
+  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -293,7 +345,7 @@ export default function EditorView() {
                                                 <span style={{ fontSize: '12px' }}>{currentPlotIndex + 1} / {rResult.plots.length}</span>
                                                 <button onClick={() => setCurrentPlotPlotIndex(Math.min(rResult.plots.length - 1, currentPlotIndex + 1))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px' }}><ChevronRight size={14}/></button>
                                             </div>
-                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} />
+                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} alt="Plot" />
                                             </>
                                         ) : 'No plots.'}
                                     </div>
@@ -317,7 +369,7 @@ export default function EditorView() {
                     ) : (
                         <div style={{ flex: 1, position: 'relative' }}>
                             {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader className="animate-spin" /></div>}
-                            {pdfUrl ? <iframe src={pdfUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="PDF Preview" /> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>PDF Preview</div>}
+                            {pdfUrl ? <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"><div style={{ height: '100%' }}><Viewer fileUrl={pdfUrl} plugins={[zoomPluginInstance]} defaultScale={SpecialZoomLevel.PageWidth} /></div></Worker> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>PDF Preview</div>}
                         </div>
                     )}
                 </div>
@@ -345,7 +397,7 @@ export default function EditorView() {
           </div>
       )}
 
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}><Copy size={14}/> Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}><Trash2 size={14}/> Delete</button></div>}
+      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button></div>}
     </div>
   );
 }
