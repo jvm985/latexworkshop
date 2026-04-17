@@ -215,7 +215,13 @@ const compileProject = async (project: any, user: any, body: any) => {
                 binaryData = target.binaryData;
             }
         }
-        fs.writeFileSync(fullPath, doc.isBinary && binaryData ? binaryData : (content || ''));
+        
+        let finalData: string | Buffer = content || '';
+        if (doc.isBinary && binaryData) {
+            finalData = Buffer.isBuffer(binaryData) ? binaryData : Buffer.from((binaryData as any).buffer || binaryData);
+        }
+        
+        fs.writeFileSync(fullPath, finalData);
         const relPath = path.join(doc.path, doc.name);
         if (preferredMain && doc.name === preferredMain) mainFile = relPath;
         if (doc.isMain && !mainFile) mainFile = relPath;
