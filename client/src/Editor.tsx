@@ -7,18 +7,10 @@ import {
   Play, ChevronLeft, FileText, 
   FolderPlus, 
   X, 
-  ChevronDown, ChevronRight, Trash2, CheckCircle2,
-  Download, LogOut, Loader,
-  Copy, ImageIcon, 
-  Edit3, MoreVertical,
+  ChevronDown, ChevronRight,
+  LogOut, Loader, 
   Eraser, Database, Link, FilePlus
 } from 'lucide-react';
-
-import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
-import { zoomPlugin } from '@react-pdf-viewer/zoom';
-import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
-import '@react-pdf-viewer/core/lib/styles/index.css';
-import '@react-pdf-viewer/zoom/lib/styles/index.css';
 
 const API_URL = '/api';
 
@@ -41,7 +33,6 @@ export default function EditorView() {
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
   
   const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
@@ -58,8 +49,6 @@ export default function EditorView() {
   const consoleRef = useRef<HTMLDivElement>(null);
   
   const token = localStorage.getItem('latex_token');
-  const zoomPluginInstance = zoomPlugin();
-  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -165,19 +154,6 @@ export default function EditorView() {
     fetchAll();
   };
 
-  const deleteFile = async (docId: string) => {
-    if (!confirm('Delete item?')) return;
-    await axios.delete(`${API_URL}/projects/${id}/files/${docId}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (activeDoc?._id === docId) setActiveDoc(null);
-    fetchAll();
-  };
-
-  const copyFile = async (doc: any) => {
-      const newName = prompt('New name:', doc.name + ' (copy)'); if (!newName) return;
-      await axios.post(`${API_URL}/projects/${id}/files`, { name: newName, isFolder: doc.isFolder, isBinary: doc.isBinary, path: doc.path, content: doc.content, binaryData: doc.binaryData }, { headers: { Authorization: `Bearer ${token}` } });
-      fetchAll();
-  };
-
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
     documents.forEach(doc => {
@@ -205,7 +181,7 @@ export default function EditorView() {
       const doc = isFolder ? item._doc : item;
       return (
         <div key={folderPath}>
-          <div onClick={() => switchDoc(item, folderPath)} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, doc }); }} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
+          <div onClick={() => switchDoc(item, folderPath)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: doc?.isMain ? '#4ade80' : '#aaa', gap: '8px' }}>
             {isFolder ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : <FileText size={14} color="#519aba"/>}
             <span style={{ fontStyle: doc?.isLink ? 'italic' : 'normal' }}>{key}</span>
           </div>
@@ -223,7 +199,7 @@ export default function EditorView() {
           if (rect) setOutputHeight(Math.max(50, Math.min(rect.height - 50, e.clientY - rect.top)));
       }
     };
-    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; setContextMenu(null); };
+    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
@@ -260,7 +236,7 @@ export default function EditorView() {
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
-                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'space-between', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
                     <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
                 </div>
@@ -299,7 +275,7 @@ export default function EditorView() {
                                                 <span style={{ fontSize: '12px' }}>{currentPlotIndex + 1} / {rResult.plots.length}</span>
                                                 <button onClick={() => setCurrentPlotPlotIndex(Math.min(rResult.plots.length - 1, currentPlotIndex + 1))} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px' }}><ChevronRight size={14}/></button>
                                             </div>
-                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} />
+                                            <img src={`data:image/png;base64,${rResult.plots[currentPlotIndex]}`} style={{ maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain' }} alt="Plot" />
                                             </>
                                         ) : 'No plots.'}
                                     </div>
@@ -322,8 +298,8 @@ export default function EditorView() {
                         </>
                     ) : (
                         <div style={{ flex: 1, position: 'relative' }}>
-                            {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader className="animate-spin" /></div>}
-                            {pdfUrl ? <iframe src={pdfUrl} style={{ width: '100%', height: '100%', border: 'none' }} /> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>PDF Preview</div>}
+                            {compiling && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader className="animate-spin" /></div>}
+                            {pdfUrl ? <iframe src={pdfUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="PDF Preview" /> : <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444' }}>PDF Preview</div>}
                         </div>
                     )}
                 </div>
@@ -350,8 +326,6 @@ export default function EditorView() {
               </div>
           </div>
       )}
-
-      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => copyFile(contextMenu.doc)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => deleteFile(contextMenu.doc._id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button></div>}
     </div>
   );
 }
