@@ -12,6 +12,12 @@ import {
   Eraser, Database, Link, FilePlus
 } from 'lucide-react';
 
+import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
+import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import type { RenderZoomInProps, RenderZoomOutProps } from '@react-pdf-viewer/zoom';
+import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/zoom/lib/styles/index.css';
+
 const API_URL = '/api';
 
 export default function EditorView() {
@@ -33,6 +39,7 @@ export default function EditorView() {
   
   const [leftWidth, setLeftWidth] = useState(240);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ '/': true });
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, doc: any } | null>(null);
   
   const [user] = useState<any>(JSON.parse(localStorage.getItem('latex_user') || '{}'));
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
@@ -49,6 +56,8 @@ export default function EditorView() {
   const consoleRef = useRef<HTMLDivElement>(null);
   
   const token = localStorage.getItem('latex_token');
+  const zoomPluginInstance = zoomPlugin();
+  const { ZoomIn, ZoomOut } = zoomPluginInstance;
 
   const fetchAll = async () => {
     try {
@@ -199,7 +208,7 @@ export default function EditorView() {
           if (rect) setOutputHeight(Math.max(50, Math.min(rect.height - 50, e.clientY - rect.top)));
       }
     };
-    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; };
+    const handleMouseUp = () => { isResizingSidebarRef.current = false; isResizingOutputRef.current = false; setContextMenu(null); };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
@@ -236,7 +245,7 @@ export default function EditorView() {
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
-                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'space-between', display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
                     <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
                 </div>
@@ -326,6 +335,8 @@ export default function EditorView() {
               </div>
           </div>
       )}
+
+      {contextMenu && <div style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 1000, width: '160px', padding: '6px' }}><button onClick={() => { if(contextMenu.doc) copyFile(contextMenu.doc); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ccc', padding: '8px', cursor: 'pointer' }}>Copy</button><button onClick={() => { if(contextMenu.doc) deleteFile(contextMenu.doc._id); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#ff5f56', padding: '8px', cursor: 'pointer' }}>Delete</button></div>}
     </div>
   );
 }
