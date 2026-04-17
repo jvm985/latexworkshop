@@ -244,6 +244,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       session.output = '';
       const sentinel = `SENTINEL_DONE_${Date.now()}`;
       const userScriptPath = `/tmp/lw_user_${userId}.R`;
+      const wrapperScriptPath = `/tmp/lw_wrap_${userId}.R`;
       fs.writeFileSync(userScriptPath, currentContent || '');
 
       const wrappedCode = `
@@ -261,7 +262,9 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         }
         write_json(var_list, "/tmp/lw_vars_${userId}.json")
       `;
-      session.process.stdin.write(`source(text=${JSON.stringify(wrappedCode)}, echo=FALSE)\n`);
+      
+      fs.writeFileSync(wrapperScriptPath, wrappedCode);
+      session.process.stdin.write(`source("${wrapperScriptPath}", echo=FALSE)\n`);
 
       let checkCount = 0;
       const waitForDone = setInterval(() => {
@@ -270,7 +273,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
               let out = session.output.split(sentinel)[0];
               const lines = out.split('\n').filter(l => {
                   const t = l.trim();
-                  if (t.startsWith('> source(text=') || t.startsWith('> options(warn=') || t.startsWith('> suppressMessages(')) return false;
+                  if (t.startsWith('> source(') || t.startsWith('> options(warn=') || t.startsWith('> suppressMessages(')) return false;
                   if (t.includes('SENTINEL_DONE_') || t.includes('lw_vars_')) return false;
                   return true;
               });
@@ -293,23 +296,13 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
 
 app.get('/api/test-system', async (req, res) => {
     const results: any[] = [];
-    
-    // 1. Database & Auth Test
     try {
-        const testUser = await User.findOneAndUpdate(
-            { email: 'test-system@internal.cloud' },
-            { name: 'System Tester' },
-            { upsert: true, new: true }
-        );
+        const testUser = await User.findOneAndUpdate({ email: 'test-system@internal.cloud' }, { name: 'System Tester' }, { upsert: true, new: true });
         const token = jwt.sign({ userId: testUser._id, email: testUser.email }, JWT_SECRET);
         results.push({ name: 'Auth/JWT OK', success: !!token });
-
-        // 2. Project Creation Test
         const projName = `Test Proj ${Date.now()}`;
         const proj = await Project.create({ owner: testUser._id, name: projName });
         results.push({ name: 'Project Creation OK', success: !!proj && proj.name === projName });
-
-        // 3. Project Deletion Test
         if (proj) {
             await Project.deleteOne({ _id: proj._id });
             const found = await Project.findById(proj._id);
@@ -317,10 +310,8 @@ app.get('/api/test-system', async (req, res) => {
         }
     } catch (e: any) { results.push({ name: 'Auth/Project DB Tests', success: false, error: e.message }); }
 
-    // 4. Compilation Tests
     const testDir = '/tmp/lw_system_tests';
     if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
-    
     const runCmd = (name: string, cmd: string, files: any) => {
         const work = path.join(testDir, name.replace(/ /g,'_'));
         if (!fs.existsSync(work)) fs.mkdirSync(work, { recursive: true });
@@ -332,11 +323,8 @@ app.get('/api/test-system', async (req, res) => {
             });
         });
     };
-
     await runCmd('LaTeX Compilation OK', 'latexmk -pdf -interaction=nonstopmode main.tex', { 'main.tex': '\\documentclass{article}\\begin{document}OK\\end{document}' });
     await runCmd('RMarkdown Compilation OK', 'Rscript -e "rmarkdown::render(\'main.Rmd\', output_file=\'out.pdf\')" ', { 'main.Rmd': '---\noutput: pdf_document\n---\n# OK' });
-
-    // 5. Interactive R Test
     const rTest = () => {
         return new Promise((resolve) => {
             const session = getRSession("test_user_system");
@@ -344,17 +332,13 @@ app.get('/api/test-system', async (req, res) => {
             let output = '';
             const handler = (data: Buffer) => {
                 output += data.toString();
-                if (output.includes(sentinel)) {
-                    session.process.stdout.off('data', handler);
-                    resolve({ name: 'R Interactive OK', success: output.includes('42'), stdout: output });
-                }
+                if (output.includes(sentinel)) { session.process.stdout.off('data', handler); resolve({ name: 'R Interactive OK', success: output.includes('42'), stdout: output }); }
             };
             session.process.stdout.on('data', handler);
             session.process.stdin.write(`print(21*2)\ncat("${sentinel}\\n")\n`);
         });
     };
     results.push(await rTest());
-
     res.json(results);
 });
 
