@@ -183,6 +183,15 @@ app.post('/api/projects/:id/files/:fileId/main', authenticate, async (req: any, 
     res.json({ success: true });
 });
 
+app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
+    const project = await Project.findOneAndUpdate(
+        { _id: req.params.id, owner: req.user._id },
+        req.body,
+        { new: true }
+    ).populate('owner', 'name email');
+    res.json(project);
+});
+
 app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
   await Project.deleteOne({ _id: req.params.id, owner: req.user._id });
   await Document.deleteMany({ project: req.params.id });

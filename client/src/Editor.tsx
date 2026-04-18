@@ -403,17 +403,17 @@ export default function EditorView() {
                         <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: lastStatus === 'success' ? '#4ade80' : lastStatus === 'error' ? '#ff5f56' : 'transparent' }}></div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setShowLogs(!showLogs)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Logs</button>
+                        <button onClick={(e) => { e.stopPropagation(); setShowLogs(!showLogs); }} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Logs</button>
                         
                         <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
-                            <button onClick={(e) => { e.stopPropagation(); compile(); }} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px 0 0 4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', borderRight: activeDoc?.name.endsWith('.tex') ? '1px solid rgba(0,0,0,0.1)' : 'none' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : (project?.compiler === 'pdflatex' ? 'Compile' : project?.compiler))}</button>
-                            {activeDoc?.name.endsWith('.tex') && (
+                            <button onClick={(e) => { e.stopPropagation(); compile(); }} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px 0 0 4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', borderRight: activeDoc?.name.toLowerCase().endsWith('.tex') ? '1px solid rgba(0,0,0,0.1)' : 'none' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : (project?.compiler === 'pdflatex' ? 'Compile' : project?.compiler))}</button>
+                            {activeDoc?.name.toLowerCase().endsWith('.tex') && (
                                 <button onClick={(e) => { e.stopPropagation(); setShowCompilerMenu(!showCompilerMenu); }} style={{ background: 'none', border: 'none', color: 'white', padding: '4px 6px', cursor: 'pointer' }}><ChevronDown size={12}/></button>
                             )}
-                            {showCompilerMenu && activeDoc?.name.endsWith('.tex') && (
+                            {showCompilerMenu && activeDoc?.name.toLowerCase().endsWith('.tex') && (
                                 <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '160px', padding: '4px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
                                     {['pdflatex', 'xelatex', 'lualatex'].map(c => (
-                                        <button key={c} onClick={() => { updateProject({ compiler: c }); setShowCompilerMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <button key={c} onClick={(e) => { e.stopPropagation(); updateProject({ compiler: c }); setShowCompilerMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             {project?.compiler === c ? <Check size={14}/> : <div style={{ width: 14 }}/>} {c}
                                         </button>
                                     ))}
