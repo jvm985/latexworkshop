@@ -253,7 +253,7 @@ const compileProject = async (project: any, user: any, body: any) => {
     else {
         const compiler = project.compiler || 'pdflatex';
         const engine = compiler === 'xelatex' ? '-pdfxe' : (compiler === 'lualatex' ? '-pdflua' : '-pdf');
-        command = `latexmk ${engine} -interaction=nonstopmode -f "${mainFile}"`;
+        command = `latexmk ${engine} -jobname=output -interaction=nonstopmode -f "${mainFile}"`;
     }
 
     return new Promise((resolve, reject) => {
