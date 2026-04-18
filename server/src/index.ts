@@ -246,7 +246,11 @@ const compileProject = async (project: any, user: any, body: any) => {
     let command = '';
     if (mainFile.endsWith('.Rmd')) command = `Rscript -e ".libPaths(c('/usr/local/lib/R/site-library', .libPaths())); rmarkdown::render('${mainFile}', output_file='output.pdf', output_dir='.')"`;
     else if (mainFile.endsWith('.typ')) command = `typst compile "${mainFile}" "output.pdf"`;
-    else command = `latexmk -pdf -interaction=nonstopmode -f "${mainFile}"`;
+    else {
+        const compiler = project.compiler || 'pdflatex';
+        const engine = compiler === 'xelatex' ? '-pdfxe' : (compiler === 'lualatex' ? '-pdflua' : '-pdf');
+        command = `latexmk ${engine} -interaction=nonstopmode -f "${mainFile}"`;
+    }
 
     return new Promise((resolve, reject) => {
         exec(command, { cwd: workDir, timeout: 120000 }, (error, stdout, stderr) => {
