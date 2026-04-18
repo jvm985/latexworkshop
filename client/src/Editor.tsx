@@ -116,7 +116,7 @@ export default function EditorView() {
       setProject(res.data.project);
       setDocuments(res.data.documents);
       if (res.data.documents.length > 0 && !activeDocIdRef.current) {
-        const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name === 'main.tex' || d.name === 'main.typ' || d.name === 'main.md') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
+        const main = res.data.documents.find((d: any) => d.isMain) || res.data.documents.find((d: any) => d.name.toLowerCase() === 'main.tex' || d.name.toLowerCase() === 'main.typ' || d.name.toLowerCase() === 'main.md') || res.data.documents.find((d: any) => !d.isFolder && !d.isBinary) || res.data.documents[0];
         switchDoc(main);
       }
     } catch (e) { navigate('/'); }
@@ -204,7 +204,13 @@ export default function EditorView() {
           return;
       }
       let fullDoc = item;
-      if (!item.isFolder && !item.isBinary && (item.content === undefined || item.content === "")) {
+      // Lazy load logic: also for binary files missing binaryData
+      const needsLazyLoad = (item.isFolder === false) && (
+          (item.isBinary === false && (item.content === undefined || item.content === "")) ||
+          (item.isBinary === true && (item.binaryData === undefined || item.binaryData === null))
+      );
+
+      if (needsLazyLoad) {
           try {
               const res = await axios.get(`${API_URL}/projects/${id}/files/${item._id}`, { headers: { Authorization: `Bearer ${token}` } });
               fullDoc = res.data;
@@ -367,6 +373,21 @@ export default function EditorView() {
 
   if (!project) return null;
 
+  const renderBinaryContent = () => {
+      if (!activeDoc || !activeDoc.isBinary) return null;
+      const ext = activeDoc.name.toLowerCase().split('.').pop();
+      const b64 = activeDoc.binaryData?.data ? btoa(String.fromCharCode(...new Uint8Array(activeDoc.binaryData.data))) : null;
+      if (!b64) return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading binary...</div>;
+
+      if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext!)) {
+          return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflow: 'auto' }}><img src={`data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${b64}`} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', boxShadow: '0 0 20px rgba(0,0,0,0.5)' }} alt={activeDoc.name} /></div>;
+      }
+      if (ext === 'pdf') {
+          return <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js"><div style={{ height: '100%' }}><Viewer fileUrl={`data:application/pdf;base64,${b64}`} plugins={[zoomPluginInstance]} defaultScale={SpecialZoomLevel.PageWidth} /></div></Worker>;
+      }
+      return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Binary File: {activeDoc.name} ({ext})</div>;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowCompilerMenu(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333' }}>
@@ -417,7 +438,6 @@ export default function EditorView() {
                                             e.stopPropagation(); 
                                             setShowCompilerMenu(false);
                                             await updateProject({ compiler: c });
-                                            // Forceer compile na update, maar wacht heel even op de state update
                                             setTimeout(() => compile(), 100);
                                         }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             {project?.compiler === c ? <Check size={14}/> : <div style={{ width: 14 }}/>} {c}
@@ -431,7 +451,7 @@ export default function EditorView() {
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
                         <Editor height="100%" language={activeDoc.name.endsWith('.tex') ? 'latex' : (activeDoc.name.endsWith('.md') ? 'markdown' : (activeDoc.name.match(/\.[Rr]$/) ? 'r' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false } }} />
-                    ) : (activeDoc?.isBinary ? <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Binary File: {activeDoc.name}</div> : null)}
+                    ) : renderBinaryContent()}
                 </div>
             </div>
             <div onMouseDown={() => isResizingRef.current = true} style={{ width: '6px', cursor: 'col-resize', background: '#111', zIndex: 50 }}></div>
