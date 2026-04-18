@@ -301,11 +301,18 @@ export default function EditorView() {
   };
 
   const onDragStart = (e: React.DragEvent, doc: any) => { if (doc) e.dataTransfer.setData('docId', doc._id); };
-  const onDrop = (e: React.DragEvent, targetNode: any) => {
+  const onDrop = (e: React.DragEvent, targetPath: string, isFolder: boolean) => {
       e.preventDefault(); setDragOverNode(null);
       const docId = e.dataTransfer.getData('docId');
-      let newPath = targetNode._isFolder ? ((targetNode._path || "") + (targetNode._name ? targetNode._name + "/" : "")) : (targetNode.isFolder ? (targetNode.path + targetNode.name + "/") : targetNode.path);
-      if (docId) moveFile(docId, newPath);
+      // Als we op een folder droppen, is targetPath het nieuwe pad (bijv. "map/")
+      // Als we op een bestand droppen, willen we naar de map van dat bestand (de parent)
+      let finalPath = targetPath;
+      if (!isFolder) {
+          const parts = targetPath.split('/').filter(Boolean);
+          parts.pop(); // Verwijder de bestandsnaam
+          finalPath = parts.length > 0 ? parts.join('/') + '/' : '';
+      }
+      if (docId) moveFile(docId, finalPath);
   };
 
   const renderNode = (node: any, path: string, depth: number) => {
@@ -321,7 +328,7 @@ export default function EditorView() {
       const doc = isFolderNode ? item._doc : item;
       const itemId = doc?._id || folderPath;
       return (
-        <div key={itemId} onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} onDragLeave={() => setDragOverNode(null)} onDrop={(e) => onDrop(e, item)} style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}>
+        <div key={itemId} onDragOver={(e) => { e.preventDefault(); setDragOverNode(itemId); }} onDragLeave={() => setDragOverNode(null)} onDrop={(e) => onDrop(e, folderPath, isFolderNode)} style={{ background: dragOverNode === itemId ? 'rgba(0,113,227,0.1)' : 'transparent' }}>
           <div onClick={() => switchDoc(item, folderPath)} draggable={!!doc} onDragStart={(e) => onDragStart(e, doc)} style={{ display: 'flex', alignItems: 'center', padding: `4px 12px 4px ${depth * 12 + 12}px`, cursor: 'pointer', fontSize: '13px', background: activeDoc?._id === doc?._id ? '#37373d' : 'transparent', color: activeDoc?._id === doc?._id ? '#fff' : (doc?.isMain ? '#4ade80' : '#aaa'), gap: '8px', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                 {isFolderNode ? (isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>) : null}
