@@ -196,6 +196,14 @@ app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
     res.json(project);
 });
 
+app.post('/api/projects/:id/links', authenticate, async (req: any, res) => {
+    const { targetProjectId, targetDocumentId, name, path } = req.body;
+    const targetProj = await Project.findOne({ _id: targetProjectId, $or: [{ owner: req.user._id }, { 'sharedWith.email': req.user.email }] });
+    if (!targetProj) return res.status(403).send('No access to target project');
+    const link = await Document.create({ project: req.params.id, name, path, isLink: true, linkedProject: targetProjectId, linkedDocument: targetDocumentId });
+    res.json(link);
+});
+
 app.delete('/api/projects/:id', authenticate, async (req: any, res) => {
   await Project.deleteOne({ _id: req.params.id, owner: req.user._id });
   await Document.deleteMany({ project: req.params.id });
