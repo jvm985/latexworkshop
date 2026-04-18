@@ -413,7 +413,13 @@ export default function EditorView() {
                             {showCompilerMenu && activeDoc?.name.toLowerCase().endsWith('.tex') && (
                                 <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '160px', padding: '4px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
                                     {['pdflatex', 'xelatex', 'lualatex'].map(c => (
-                                        <button key={c} onClick={(e) => { e.stopPropagation(); updateProject({ compiler: c }); setShowCompilerMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <button key={c} onClick={async (e) => { 
+                                            e.stopPropagation(); 
+                                            setShowCompilerMenu(false);
+                                            await updateProject({ compiler: c });
+                                            // Forceer compile na update, maar wacht heel even op de state update
+                                            setTimeout(() => compile(), 100);
+                                        }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             {project?.compiler === c ? <Check size={14}/> : <div style={{ width: 14 }}/>} {c}
                                         </button>
                                     ))}

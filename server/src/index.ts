@@ -184,11 +184,15 @@ app.post('/api/projects/:id/files/:fileId/main', authenticate, async (req: any, 
 });
 
 app.patch('/api/projects/:id', authenticate, async (req: any, res) => {
-    const project = await Project.findOneAndUpdate(
-        { _id: req.params.id, owner: req.user._id },
-        req.body,
-        { new: true }
-    ).populate('owner', 'name email');
+    const filter = { 
+        _id: req.params.id, 
+        $or: [
+            { owner: req.user._id }, 
+            { 'sharedWith.email': req.user.email, 'sharedWith.permission': 'write' }
+        ] 
+    };
+    const project = await Project.findOneAndUpdate(filter, req.body, { new: true }).populate('owner', 'name email');
+    if (!project) return res.status(403).send('No permission or project not found');
     res.json(project);
 });
 
