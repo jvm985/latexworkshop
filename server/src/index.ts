@@ -99,6 +99,7 @@ const getRSession = (userId: string) => {
   rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
   rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
   rProcess.stdin.write(`.libPaths(c("/usr/local/lib/R/site-library", .libPaths()))\n`);
+  rProcess.stdin.write(`suppressMessages(library(jsonlite, quietly=TRUE))\n`);
   rProcess.stdin.write(`options(device = function(...) { png(file = "/tmp/lw_plot_${userId}_%03d.png", width = 800, height = 600) })\n`);
   userSessions.set(userId, session);
   return session;
@@ -287,8 +288,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
         options(warn=-1, prompt="> ", continue="+ ")
         tryCatch({ source("${userScriptPath}", echo=TRUE, spaced=FALSE, print.eval=TRUE) }, error = function(e) { cat("ERROR:", e$message, "\\n") })
         while(dev.cur() > 1) dev.off()
-        cat("${sentinel}\\n")
-        suppressMessages(library(jsonlite, quietly=TRUE))
+        
         var_list <- list(); all_objs <- ls(all.names=FALSE, envir = .GlobalEnv)
         for (v in all_objs) {
           if (v %in% c("var_list", "all_objs", "v", "val") || grepl("^\\\\.lw_", v)) next
@@ -296,6 +296,7 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
           if (!is.function(val) && !is.environment(val)) var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
         }
         write_json(var_list, "/tmp/lw_vars_${userId}.json")
+        cat("${sentinel}\\n")
       `;
       
       fs.writeFileSync(wrapperScriptPath, wrappedCode);
