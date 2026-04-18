@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight,
   LogOut, Loader, 
   Eraser, Database, Link, FilePlus, FolderPlus, Trash2, 
-  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download, Copy, AlertCircle
+  MoreVertical, Edit3, Folder, ImageIcon, CheckCircle2, Download, Copy, AlertCircle, Check
 } from 'lucide-react';
 
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
@@ -77,6 +77,7 @@ export default function EditorView() {
   
   const [compiling, setCompiling] = useState(false);
   const [lastStatus, setLastStatus] = useState<'success' | 'error' | 'none'>('none');
+  const [showCompilerMenu, setShowCompilerMenu] = useState(false);
   
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
@@ -268,6 +269,13 @@ export default function EditorView() {
       fetchAll();
   };
 
+  const updateProject = async (updates: any) => {
+      try {
+          const res = await axios.patch(`${API_URL}/projects/${id}`, updates, { headers: { Authorization: `Bearer ${token}` } });
+          setProject(res.data);
+      } catch(e) {}
+  };
+
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
     documents.forEach(doc => {
@@ -360,7 +368,7 @@ export default function EditorView() {
   if (!project) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => setActiveItemMenu(null)}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowCompilerMenu(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><ChevronLeft size={20}/></button>
@@ -378,7 +386,7 @@ export default function EditorView() {
           <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: '#555' }}>EXPLORER</span>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={async () => { const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }); setAvailableProjects(res.data.filter((p:any)=>p._id!==id)); setShowLinkModal(true); }} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><Link size={14}/></button>
+              <button onClick={async (e) => { e.stopPropagation(); const res = await axios.get(`${API_URL}/projects`, { headers: { Authorization: `Bearer ${token}` } }); setAvailableProjects(res.data.filter((p:any)=>p._id!==id)); setShowLinkModal(true); }} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><Link size={14}/></button>
               <button onClick={() => addFile(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FilePlus size={14}/></button>
               <button onClick={() => addFile(true)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><FolderPlus size={14}/></button>
             </div>
@@ -396,7 +404,22 @@ export default function EditorView() {
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button onClick={() => setShowLogs(!showLogs)} style={{ background: '#333', border: 'none', color: '#ccc', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Logs</button>
-                        <button onClick={compile} disabled={compiling} style={{ background: '#28a745', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : 'Compile')}</button>
+                        
+                        <div style={{ position: 'relative', display: 'flex', background: '#28a745', borderRadius: '4px', overflow: 'visible' }}>
+                            <button onClick={compile} disabled={compiling} style={{ background: 'none', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '4px 0 0 4px', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', borderRight: '1px solid rgba(0,0,0,0.1)' }}><Play size={12}/> {compiling ? '...' : (activeDoc?.name.match(/\.[Rr]$/) ? 'Run' : (project?.compiler === 'pdflatex' ? 'Compile' : project?.compiler))}</button>
+                            {!activeDoc?.name.match(/\.[Rr]$/) && (
+                                <button onClick={(e) => { e.stopPropagation(); setShowCompilerMenu(!showCompilerMenu); }} style={{ background: 'none', border: 'none', color: 'white', padding: '4px 6px', cursor: 'pointer' }}><ChevronDown size={12}/></button>
+                            )}
+                            {showCompilerMenu && (
+                                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: '#252526', border: '1px solid #444', borderRadius: '8px', zIndex: 100, width: '160px', padding: '4px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                                    {['pdflatex', 'xelatex', 'lualatex'].map(c => (
+                                        <button key={c} onClick={() => { updateProject({ compiler: c }); setShowCompilerMenu(false); }} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: project?.compiler === c ? '#4ade80' : '#ccc', padding: '8px 12px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            {project?.compiler === c ? <Check size={14}/> : <div style={{ width: 14 }}/>} {c}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <div style={{ flex: 1 }}>
