@@ -204,7 +204,6 @@ export default function EditorView() {
           return;
       }
       let fullDoc = item;
-      // Lazy load logic: also for binary files missing binaryData
       const needsLazyLoad = (item.isFolder === false) && (
           (item.isBinary === false && (item.content === undefined || item.content === "")) ||
           (item.isBinary === true && (item.binaryData === undefined || item.binaryData === null))
@@ -388,6 +387,20 @@ export default function EditorView() {
       return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Binary File: {activeDoc.name} ({ext})</div>;
   };
 
+  const getLanguage = (filename: string) => {
+      const ext = filename.toLowerCase().split('.').pop();
+      if (['tex', 'cls', 'sty'].includes(ext!)) return 'latex';
+      if (ext === 'rmd' || ext === 'md') return 'markdown';
+      if (ext === 'typ') return 'typst';
+      if (ext === 'r') return 'r';
+      if (ext === 'json') return 'json';
+      if (['js', 'ts', 'tsx', 'jsx'].includes(ext!)) return 'typescript';
+      if (['py', 'python'].includes(ext!)) return 'python';
+      if (['css', 'scss', 'sass'].includes(ext!)) return 'css';
+      if (ext === 'html') return 'html';
+      return 'plaintext';
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: '#1e1e1e', color: 'white', overflow: 'hidden' }} onClick={() => { setActiveItemMenu(null); setShowCompilerMenu(false); }}>
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px', height: '48px', background: '#252526', borderBottom: '1px solid #333' }}>
@@ -450,7 +463,7 @@ export default function EditorView() {
                 </div>
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={activeDoc.name.endsWith('.tex') ? 'latex' : (activeDoc.name.endsWith('.md') ? 'markdown' : (activeDoc.name.match(/\.[Rr]$/) ? 'r' : 'latex'))} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false } }} />
+                        <Editor height="100%" language={getLanguage(activeDoc.name)} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false } }} />
                     ) : renderBinaryContent()}
                 </div>
             </div>
