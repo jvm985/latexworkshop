@@ -163,6 +163,12 @@ export default function EditorView() {
           setRResult((prev: any) => ({ ...res.data, stdout: (prev?.stdout || '') + res.data.stdout + '\n', plots: [...(prev?.plots || []), ...(res.data.plots || [])] }));
           if (res.data.plots?.length > 0) { setActiveTab('plots'); setCurrentPlotPlotIndex((prev:any) => (prev || 0) + res.data.plots.length - 1); }
       } else {
+          // Check for logs in header
+          const b64Logs = res.headers['x-compilation-logs'];
+          if (b64Logs) {
+              try { setLogs(atob(b64Logs)); } catch(e) { console.error('Failed to decode logs'); }
+          }
+
           const blob = new Blob([res.data], { type: 'application/pdf' });
           setPdfUrl(window.URL.createObjectURL(blob));
           setRResult(null);

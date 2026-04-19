@@ -374,7 +374,10 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
 
   try {
       const result: any = await compileProject(project, req.user, req.body);
-      res.sendFile(result.pdfPath);
+      if (result.logs) {
+          res.setHeader('X-Compilation-Logs', Buffer.from(result.logs).toString('base64'));
+      }
+      return res.sendFile(result.pdfPath);
   } catch (err: any) {
       console.error("Compilation Error:", err);
       res.status(500).json(err);
