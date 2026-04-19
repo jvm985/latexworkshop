@@ -283,16 +283,28 @@ export default function EditorView() {
 
   const buildTree = () => {
     const root: any = { _isFolder: true, _children: {} };
-    documents.forEach(doc => {
+    // Sorteer documenten zodat links aan het einde komen (lokale bestanden eerst)
+    const sortedDocs = [...documents].sort((a, b) => (a.isLink ? 1 : 0) - (b.isLink ? 0 : 1));
+    
+    sortedDocs.forEach(doc => {
       const parts = (doc.path + (doc.isFolder ? "" : doc.name)).split('/').filter(Boolean);
       if (doc.isFolder) parts.push(doc.name); 
       let current = root;
       parts.forEach((part: string, index: number) => {
         const isLast = index === parts.length - 1;
-        if (isLast && !doc.isFolder) current._children[part] = doc;
+        if (isLast && !doc.isFolder) {
+            // Overschrijf alleen als het geen link is, of als er nog niets staat
+            if (!current._children[part] || !doc.isLink) {
+                current._children[part] = doc;
+            }
+        }
         else {
           if (!current._children[part]) current._children[part] = { _isFolder: true, _children: {}, _doc: null, _path: doc.path, _name: part };
-          if (isLast && doc.isFolder) current._children[part]._doc = doc;
+          if (isLast && doc.isFolder) {
+              if (!current._children[part]._doc || !doc.isLink) {
+                  current._children[part]._doc = doc;
+              }
+          }
           current = current._children[part];
         }
       });
@@ -470,7 +482,7 @@ export default function EditorView() {
                 </div>
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={getLanguage(activeDoc.name)} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false }, readOnly: !!activeDoc.isLink }} />
+                        <Editor key={activeDoc._id} height="100%" language={getLanguage(activeDoc.name)} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false }, readOnly: !!activeDoc.isLink }} />
                     ) : renderBinaryContent()}
                 </div>
             </div>

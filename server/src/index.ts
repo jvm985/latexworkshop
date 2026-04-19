@@ -156,7 +156,21 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
-    let doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id }).lean();
+    const fileId = req.params.fileId;
+    
+    // Check voor virtuele ID (bijv. linkID_childID)
+    if (fileId.includes('_')) {
+        const [linkId, childId] = fileId.split('_');
+        const linkDoc = await Document.findOne({ _id: linkId, project: req.params.id }).lean();
+        if (linkDoc && linkDoc.isLink && linkDoc.linkedProject) {
+            const targetChild = await Document.findOne({ _id: childId, project: linkDoc.linkedProject }).lean();
+            if (targetChild) {
+                return res.json({ ...targetChild, _id: fileId, project: req.params.id, isLink: true });
+            }
+        }
+    }
+
+    let doc = await Document.findOne({ _id: fileId, project: req.params.id }).lean();
     if (!doc) return res.status(404).send('Not found');
 
     if (doc.isLink && doc.linkedDocument) {
