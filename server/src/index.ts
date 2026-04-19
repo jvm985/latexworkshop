@@ -156,8 +156,16 @@ app.get('/api/projects/:id', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/projects/:id/files/:fileId', authenticate, async (req: any, res) => {
-    const doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id });
+    let doc = await Document.findOne({ _id: req.params.fileId, project: req.params.id }).lean();
     if (!doc) return res.status(404).send('Not found');
+
+    if (doc.isLink && doc.linkedDocument) {
+        const target: any = await Document.findById(doc.linkedDocument).lean();
+        if (target) {
+            // Merge link properties with target content
+            doc = { ...target, _id: doc._id, project: doc.project, path: doc.path, name: doc.name, isLink: true };
+        }
+    }
     res.json(doc);
 });
 

@@ -192,7 +192,7 @@ export default function EditorView() {
   }, [activeDoc, compiling, documents]);
 
   const handleEditorChange = (value: string | undefined) => {
-    if (value === undefined || !activeDoc) return;
+    if (value === undefined || !activeDoc || activeDoc.isLink) return;
     setDocuments(prev => prev.map(d => d._id === activeDoc._id ? { ...d, content: value } : d));
     socketRef.current?.emit('edit-document', { documentId: activeDoc._id, content: value });
   };
@@ -470,7 +470,7 @@ export default function EditorView() {
                 </div>
                 <div style={{ flex: 1 }}>
                     {activeDoc && !activeDoc.isBinary && !activeDoc.isFolder ? (
-                        <Editor height="100%" language={getLanguage(activeDoc.name)} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false } }} />
+                        <Editor height="100%" language={getLanguage(activeDoc.name)} theme="vs-dark" value={activeDoc.content || ''} onChange={handleEditorChange} onMount={(editor) => { editorRef.current = editor; }} options={{ fontSize: 16, minimap: { enabled: false }, readOnly: !!activeDoc.isLink }} />
                     ) : renderBinaryContent()}
                 </div>
             </div>
