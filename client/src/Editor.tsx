@@ -110,6 +110,12 @@ export default function EditorView() {
   const token = localStorage.getItem('latex_token');
   const zoomPluginInstance = zoomPlugin();
 
+  useEffect(() => {
+    if (project) {
+        document.title = `${project.name} - ${activeDoc?.name || 'Editor'} | Docs`;
+    }
+  }, [project, activeDoc]);
+
   const fetchAll = async () => {
     try {
       const res = await axios.get(`${API_URL}/projects/${id}`, { headers: { Authorization: `Bearer ${token}` } });
