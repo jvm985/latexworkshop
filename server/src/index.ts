@@ -380,6 +380,9 @@ app.post('/api/compile/:id', authenticate, async (req: any, res: any) => {
       return res.sendFile(result.pdfPath);
   } catch (err: any) {
       console.error("Compilation Error:", err);
+      if (err.logs) {
+          res.setHeader('X-Compilation-Logs', Buffer.from(err.logs).toString('base64'));
+      }
       res.status(500).json(err);
   }
 });

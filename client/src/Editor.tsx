@@ -176,18 +176,25 @@ export default function EditorView() {
       }
     } catch (err: any) {
         setLastStatus('error');
+        
+        // Check voor logs in headers van de error respons
+        const b64Logs = err.response?.headers?.['x-compilation-logs'];
+        if (b64Logs) {
+            try { setLogs(atob(b64Logs)); } catch(e) { console.error('Failed to decode error logs'); }
+        }
+
         if (err.response?.data instanceof Blob) {
             const reader = new FileReader();
             reader.onload = () => {
                 try {
                     const errorData = JSON.parse(reader.result as string);
-                    setLogs(errorData.logs || errorData.error || 'Onbekende fout');
+                    if (!logs) setLogs(errorData.logs || errorData.error || 'Onbekende fout');
                     setShowLogs(true);
-                } catch(e) { setLogs('Fout bij compileren'); }
+                } catch(e) { if (!logs) setLogs('Fout bij compileren'); }
             };
             reader.readAsText(err.response.data);
         } else if (err.response?.data) {
-            setLogs(err.response.data.logs || err.response.data.error || 'Compilatie mislukt');
+            if (!logs) setLogs(err.response.data.logs || err.response.data.error || 'Compilatie mislukt');
             setShowLogs(true);
         }
     } finally { setCompiling(false); }
