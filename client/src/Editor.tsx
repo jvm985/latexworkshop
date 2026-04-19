@@ -198,6 +198,7 @@ export default function EditorView() {
   };
 
   const switchDoc = async (item: any, folderPath?: string) => {
+      console.log('Switching to document:', item?.name, 'ID:', item?._id, 'isLink:', item?.isLink);
       if (!item) return;
       if (item._isFolder) {
           if (folderPath) setExpandedFolders(prev => ({ ...prev, [folderPath]: !prev[folderPath] }));
@@ -210,11 +211,13 @@ export default function EditorView() {
       );
 
       if (needsLazyLoad) {
+          console.log('Lazy loading content for:', item.name);
           try {
               const res = await axios.get(`${API_URL}/projects/${id}/files/${item._id}`, { headers: { Authorization: `Bearer ${token}` } });
               fullDoc = res.data;
+              console.log('Received content for:', fullDoc.name, 'Length:', fullDoc.content?.length);
               setDocuments(prev => prev.map(d => d._id === item._id ? fullDoc : d));
-          } catch (e) { console.error('Lazy load failed'); }
+          } catch (e) { console.error('Lazy load failed for', item.name, e); }
       }
       setActiveDoc(fullDoc);
       activeDocIdRef.current = fullDoc._id;
@@ -453,6 +456,7 @@ export default function EditorView() {
                 <div style={{ background: '#2d2d2d', padding: '8px 16px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{ fontSize: '12px', color: '#aaa' }}>{activeDoc?.name}</span>
+                        <button onClick={() => switchDoc({...activeDoc, content: undefined})} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '10px', textDecoration: 'underline' }}>Update</button>
                         <div style={{ width: '8px', height: '8px', borderRadius: '4px', background: lastStatus === 'success' ? '#4ade80' : lastStatus === 'error' ? '#ff5f56' : 'transparent' }}></div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
